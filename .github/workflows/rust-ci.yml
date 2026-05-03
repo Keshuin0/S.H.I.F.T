@@ -2,20 +2,17 @@ name: S.H.I.F.T. Core Compiler
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "dev" ]
   pull_request:
     branches: [ "main" ]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  build_rust_core:
-    name: Build Rust Vault (aarch64-linux-android)
+  verify_rust_vault:
+    name: Verify Rust TEE Vault (ARM64)
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout Repository
+    - name: Download Repository
       uses: actions/checkout@v4
 
     - name: Install Rust Toolchain
@@ -23,9 +20,6 @@ jobs:
       with:
         targets: aarch64-linux-android
 
-    - name: Install Android NDK Dependencies
-      run: sudo apt-get install -y gcc-aarch64-linux-gnu
-
-    - name: Check Rust Compilation
+    - name: Verify Architecture Compilation
       working-directory: ./shift_core
       run: cargo check --target aarch64-linux-android
