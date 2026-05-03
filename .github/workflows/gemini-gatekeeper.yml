@@ -68,7 +68,8 @@ jobs:
             response = model.generate_content(prompt)
             review_text = response.text
         except Exception as e:
-            review_text = f'**REJECT**: Neural Engine Failure during audit. {e}'
+            review_text = f'**REJECT**: Neural Engine Failure during audit. Details: {str(e)}'
+            print('Exception occurred while generating content:', e)  # Log for better debugging
 
         # Fire the audit results back to the GitHub PR
         url = f'https://api.github.com/repos/{os.environ[\"GITHUB_REPOSITORY\"]}/issues/{os.environ[\"PR_NUMBER\"]}/comments'
