@@ -24,10 +24,10 @@ jobs:
     - name: Ignite Gemini Neural Engine
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11' # Upgraded to bypass the EOL warning
 
     - name: Install Architecture Dependencies
-      run: pip install google-generativeai requests
+      run: pip install google-genai requests # Upgraded to the new SDK
 
     - name: Execute Autonomous Audit
       env:
@@ -38,13 +38,10 @@ jobs:
       run: |
         python -c "
         import os, sys, requests
-        import google.generativeai as genai
+        from google import genai
 
-        genai.configure(api_key=os.environ['GEMINI_API_KEY'])
-        # Deploying the heavy-duty coding model
-        available_models = genai.list_models()
-        valid_model = available_models[0]['name']  # Use the first available model as an example
-        model = genai.GenerativeModel(valid_model)
+        # Initialize the bleeding-edge Client architecture
+        client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
 
         with open('pr_diff.txt', 'r') as f:
             diff = f.read()
@@ -67,11 +64,15 @@ jobs:
         '''
 
         try:
-            response = model.generate_content(prompt)
+            # Firing the payload to the developer API endpoint
+            response = client.models.generate_content(
+                model='gemini-3.1-pro',
+                contents=prompt
+            )
             review_text = response.text
         except Exception as e:
             review_text = f'**REJECT**: Neural Engine Failure during audit. Details: {str(e)}'
-            print('Exception occurred while generating content:', e)  # Log for better debugging
+            print('Exception occurred while generating content:', e) 
 
         # Fire the audit results back to the GitHub PR
         url = f'https://api.github.com/repos/{os.environ[\"GITHUB_REPOSITORY\"]}/issues/{os.environ[\"PR_NUMBER\"]}/comments'
