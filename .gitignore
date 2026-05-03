@@ -1,0 +1,8 @@
+/target/
+/android_app/app/build/
+/android_app/.gradle/
+/android_app/local.properties 
+*.jks
+*.keystore
+key.properties
+/shift_core/src/local_test_keys/

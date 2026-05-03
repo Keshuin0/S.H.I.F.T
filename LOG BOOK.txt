@@ -1,0 +1,90 @@
+📖 PROJECT MASTER LOG BOOK
+Project Name: The S.H.I.F.T. Protocol (Sovereign Hardware Infrastructure For Transit)
+Consumer App Name: D.R.I.V.E. (Decentralized Routing Infrastructure Via Enclaves)
+Founder / Lead Architect: Ankush
+Start Date: April 2026
+
+🟢 STATUS KEY:
+[ ⬜ ] Not Started
+[ ⏳ ] In Progress
+[ 🚧 ] Blocked (Need help, research, or a developer)
+[ ✅ ] Completed
+
+---------------------------------------------------------------------------
+PART 1: MACRO TRACKER (The Master Phases)
+---------------------------------------------------------------------------
+
+PHASE 1: S.H.I.F.T. Hardware & Identity (The Root of Trust)
+Status  Task Code   Task Description                                    Date Completed   Notes & Blockers
+[ ⏳ ]   1.1        TEE Integration: Connect app to ARM TrustZone.       //____           Android JNI/Keystore Daemon online. iOS untouched.
+[ ✅ ]   1.2        Sovereign Key Gen: Generate keys inside the TEE.    Apr 2026         ECDSA private keys successfully locked in hardware.
+[ ⏳ ]   1.3        Proof of Location (PoL): Route GPS/Cell to TEE.      //____           Telemetry flowing to Vault. Needs ZK-SNARK hardening.
+[ ⏳ ]   1.4        Soulbound Tokens: ZK-Identity for Driver KYC.        //____           Rust container built. Must bind to biometric scan.
+[ 🚧 ]   1.5        Proximity Triangulation: Bluetooth Anti-Spoofing.    //____           BLE scanner active. Must pipe MACs to Vault logic.
+
+PHASE 2: S.H.I.F.T. Mesh Networking (The P2P Layer)
+Status  Task Code   Task Description                                    Date Completed   Notes & Blockers
+[ ⏳ ]   2.1        Radio Mesh: Deploy BLE & Wi-Fi Aware.                //____           GossipSub/QUIC/Tokio online. Gap: Wi-Fi Aware/NAT.
+[ ✅ ]   2.2        Kademlia DHT: Decentralized node registry.           Apr 30, 2026     Built. mDNS discovery & Peer Routing active.
+[ ✅ ]   2.3        H3 Spatial Indexing: Uber H3 Hexagonal Grid.         Apr 30, 2026     UPGRADED: Hexagonal Res 9 routing keys active.
+[ ✅ ]   2.4        Sub-50ms Proximity Queries: Matching Engine.         May 2, 2026          Optimistic Concurrency Control pending.
+[ ⏳ ]   2.5        Dead Zone Settlement: Offline Bluetooth signing.     //____           
+
+PHASE 3: S.H.I.F.T. Block-Lattice (Financial Settlement)
+[ ⏳ ]   3.1        Block-Lattice Setup: Directed Acyclic Graph (DAG).
+[ ⬜ ]   3.2        ZK Folding (Nova): Compress ride history.
+[ ⬜ ]   3.3        Tx-PoW Spam Filter: 200ms background math.
+
+PHASE 4: S.H.I.F.T. AI Governance (The Brain)
+[ ⬜ ]   4.1        On-Device zkVM: Local smart contracts.
+[ ⬜ ]   4.2        zkML AI Brain: Surge pricing & anomaly detection.
+[ ⬜ ]   4.3        Hybrid Pricing: AI base rate + P2P bidding.
+[ ⬜ ]   4.4        Reputation Slashing: Anti-collusion AI rules.
+
+PHASE 5: D.R.I.V.E. Consumer App (UX & Safety)
+[ ⬜ ]   5.1        Decentralized SOS: 911 + BLE emergency ping.
+[ ⬜ ]   5.2        Trustless Arbitration: P2P Jury system.
+[ ⬜ ]   5.3        UI/UX Abstraction: Uber-like interface design.
+
+---------------------------------------------------------------------------
+PART 2: MICRO DAILY JOURNAL
+---------------------------------------------------------------------------
+
+Date: April 30, 2026
+Focus Area today: Phase 2.1, 2.2, and 2.3 (Mesh Networking & Spatial Indexing)
+
+What I accomplished today:
+- Injected Tokio multi-threaded runtime into Rust Vault; background P2P engine active without freezing Android UI.
+- Deployed Kademlia DHT and mDNS auto-discovery; Fold 6 and PC Bootnode now connect autonomously without hardcoded IPs.
+- Successfully upgraded from Quadtree Geohashing to Uber H3 Hexagonal Indexing (h3o crate).
+- Validated PoL transmission: PC Bootnode now receives and verifies H3 Hexagon Zone IDs signed by the Fold 6 TEE.
+
+Bleeding Problems / Blockers encountered:
+- GAP 1: Wi-Fi Aware (NAN) device modules not yet written; network still requires local router or public IP.
+- GAP 2: NAT Traversal; 5G cellular firewalls will block QUIC packets without AutoNAT/DCUtR implementation.
+- PHASE 1.5: Rust Vault currently ignores Bluetooth data; GPS spoof-rejection logic is not yet mathematically enforced.
+
+Next Steps for Tomorrow:
+- Choice: Implement spoof-rejection (1.5) or tackle NAT Hole Punching (2.1) to allow global 5G communication.
+
+
+===========================================================================
+[ ADDENDUM: MAY 2, 2026 - THE EDMONTON PROTOCOL ]
+===========================================================================
+STATUS UPDATE: 
+- The async decoupling of the Rust engine from the Android UI was successful (no more ANR crashes).
+- The 5G NAT Hole Punching test was suspended due to impenetrable government Wi-Fi firewalls blocking the Anycast/TCP tunnels.
+
+ACTION PLAN FOR EDMONTON (MAY 7TH):
+Location: Edmonton, Alberta (Clean Network Environment)
+Objective: Execute the final 5G DCUtR Hole Punching Stress Test.
+Steps:
+1. Establish the Anchor: Connect the PC Bootnode to a non-government network.
+2. Spin up the Tunnel: Run `bore` or `playit.gg` on the PC.
+3. Update the Android Vault: Inject the new raw tunnel coordinates into `shift_core\src\lib.rs`.
+4. The 5G Strike: Deploy to the Fold 6, sever Wi-Fi, run strictly on Edmonton 5G, and check the PC Bootnode terminal for the `🤝 [LINK SECURED]` handshake.
+
+
+
+NOTE : 
+cargo ndk -t arm64-v8a -o ../android_app/app/src/main/jniLibs build --release
