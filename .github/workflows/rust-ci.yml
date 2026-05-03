@@ -1,0 +1,33 @@
+name: S.H.I.F.T. Core Compiler
+
+on:
+  push:
+    branches: [ "dev" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  verify_rust_vault:
+    name: Verify Rust TEE Vault (ARM64)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download Repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust Toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-linux-android
+
+    - name: Install cargo-ndk
+      run: cargo install cargo-ndk
+
+    - name: Setup Android NDK
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r25c
+
+    - name: Verify Architecture Compilation
+      working-directory: ./shift_core
+      run: cargo ndk -t arm64-v8a check
