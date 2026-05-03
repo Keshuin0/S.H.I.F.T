@@ -1,0 +1,31 @@
+name: S.H.I.F.T. Core CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_rust_core:
+    name: Build Rust Vault (aarch64-linux-android)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust Toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-linux-android
+
+    - name: Install Android NDK Dependencies
+      run: sudo apt-get install -y gcc-aarch64-linux-gnu
+
+    - name: Check Rust Compilation
+      working-directory: ./shift_core
+      run: cargo check --target aarch64-linux-android
