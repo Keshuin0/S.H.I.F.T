@@ -66,7 +66,7 @@ jobs:
         try:
             # Firing the payload to the developer API endpoint
             response = client.models.generate_content(
-                model='gemini-2.5-pro',
+                model='gemini-1.5-pro-002',
                 contents=prompt
             )
             review_text = response.text
