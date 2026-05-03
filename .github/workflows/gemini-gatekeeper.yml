@@ -42,7 +42,9 @@ jobs:
 
         genai.configure(api_key=os.environ['GEMINI_API_KEY'])
         # Deploying the heavy-duty coding model
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        available_models = genai.list_models()
+        valid_model = available_models[0]['name']  # Use the first available model as an example
+        model = genai.GenerativeModel(valid_model)
 
         with open('pr_diff.txt', 'r') as f:
             diff = f.read()
