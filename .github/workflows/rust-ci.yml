@@ -1,4 +1,4 @@
-name: S.H.I.F.T. Core CI
+name: S.H.I.F.T. Core Compiler
 
 on:
   push:
