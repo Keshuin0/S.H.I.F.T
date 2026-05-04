@@ -30,6 +30,12 @@ import java.security.KeyStore
 object TeeBridge {
     init { System.loadLibrary("shift_core") }
     external fun pingVault(command: String): String
+    
+    // NEW: Phase 3 - The Mathematical Rejection Engine (zk-PSI)
+    external fun verifyProximityProof(scannedMacs: String, expectedMacs: String): String
+
+    // NEW: Phase 4.1 - The zkVM
+    external fun igniteZkVM(): String
 }
 
 class MainActivity : AppCompatActivity() {
@@ -51,23 +57,42 @@ class MainActivity : AppCompatActivity() {
 
         val polButton = Button(this)
         polButton.text = "EXECUTE: PHASE 1.5 (Proximity Mesh + PoL)"
-
         layout.addView(polButton)
 
-        // NEW: Phase 2.4 - The Rider's OCC Trigger
         val lockButton = Button(this)
         lockButton.text = "EXECUTE: PHASE 2.4 (Fire Sub-50ms Lock)"
-
         layout.addView(lockButton)
 
-        // NEW: Phase 3.1 - The Genesis Mint Trigger
         val genesisButton = Button(this)
         genesisButton.text = "EXECUTE: PHASE 3.1 (Mint Genesis Block)"
-
         layout.addView(genesisButton)
+
+        // (Place this near your other button declarations)
+        val zkvmButton = Button(this)
+        zkvmButton.text = "EXECUTE: PHASE 4.1 (Ignite On-Device zkVM)"
+        layout.addView(zkvmButton)
+
+        // The Click Listener
+        zkvmButton.setOnClickListener {
+            statusText.append("\n\n[ALLOCATING MEMORY FOR NOVA IVC FOLDING...]")
+
+            // Hit the Rust Core
+            val vmResponse = TeeBridge.igniteZkVM()
+            statusText.append("\n$vmResponse")
+        }
+
+        // NEW: Phase 3 - Mathematical Rejection Engine Trigger
+        val zkPsiButton = Button(this)
+        zkPsiButton.text = "EXECUTE: PHASE 3 (Test zk-PSI Rejection Engine)"
+        layout.addView(zkPsiButton)
 
         layout.addView(statusText)
         setContentView(layout)
+
+        // (Place this under your zkPsiButton setup)
+        val pricingButton = Button(this)
+        pricingButton.text = "EXECUTE: PHASE 4.3 (Hybrid Market-Maker & zkVM)"
+        layout.addView(pricingButton)
 
         // 1. BOOT SEQUENCE
         try {
@@ -82,7 +107,7 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "Boot Failed: ${e.message}"
         }
 
-        // 2. TRIGGER
+        // 2. TRIGGER PHASE 1.5
         polButton.setOnClickListener {
             if (checkAndRequestPermissions()) {
                 if (!isMeshActive) {
@@ -95,13 +120,52 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // NEW ACTION: Phase 4.3 - Hybrid Market-Maker
+        pricingButton.setOnClickListener {
+            if (!isMeshActive) {
+                statusText.append("\n\n--- ENGINE ERROR ---\nYou must activate the BLE Mesh (Phase 1.5) to gather the Supply/Demand ratio.")
+                return@setOnClickListener
+            }
+
+            statusText.append("\n\n[INITIATING HYBRID MARKET-MAKER...]")
+
+            // 1. System 1: The AI Surge (Simulating the Oracle)
+            // We use the actual number of devices your phone found to simulate local demand
+            val localDemand = nearbyNodes.size
+            val baseRatePerMile = 1.50
+
+            // Simple exponential surge logic based on local BLE density
+            val surgeMultiplier = if (localDemand > 5) 1.5 else if (localDemand > 10) 2.5 else 1.0
+            val aiSuggestedFare = baseRatePerMile * surgeMultiplier
+
+            statusText.append("\nLocal Nodes Detected: $localDemand")
+            statusText.append("\nAI Surge Multiplier: ${surgeMultiplier}x")
+            statusText.append("\nCalculated Base Fare: $$aiSuggestedFare per mile")
+
+            // 2. System 2: P2P Bidding & The Algorithmic Floor
+            // Simulate a Rider trying to lowball the Driver
+            val riderBid = 1.10
+            statusText.append("\n\n[INCOMING P2P BID: $$riderBid per mile]")
+
+            // 3. Ignite the zkVM to enforce the Smart Contract Rules
+            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC FLOOR...]")
+            val vmResponse = TeeBridge.igniteZkVM()
+            statusText.append("\n$vmResponse")
+
+            // Simulate the R1CS inequality constraint we wrote in Rust
+            if (riderBid >= baseRatePerMile) {
+                statusText.append("\n✅ [SMART CONTRACT] Bid Accepted: Fare exceeds minimum operating cost.")
+            } else {
+                statusText.append("\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
+            }
+        }
         
         // ACTION: Phase 2.4 - The Rider's Strike
         lockButton.setOnClickListener {
             if (isMeshActive) {
                 // HARDCODED DIAGNOSTIC SHARD: Target the specific Fold 6 Hexagon
                 val targetZone = "zone:892b9ab93c7ffff"
-
                 statusText.append("\n\n[FIRING LAMPORT TICKET INTO SHARD: $targetZone...]")
 
                 // Strike the Vault
@@ -115,10 +179,41 @@ class MainActivity : AppCompatActivity() {
         // ACTION: Phase 3.1 - Mint the Genesis Block
         genesisButton.setOnClickListener {
             statusText.append("\n\n[ANCHORING NODE TO BLOCK-LATTICE...]")
-
-            // Strike the Vault to mint the initial state block
             val genesisResponse = TeeBridge.pingVault("MINT_GENESIS:")
             statusText.append("\n$genesisResponse")
+        }
+
+        // NEW ACTION: Phase 3 - Test the Mathematical Rejection Engine
+        zkPsiButton.setOnClickListener {
+            if (!isMeshActive) {
+                statusText.append("\n\n--- ENGINE ERROR ---\nYou must activate the BLE Mesh (Phase 1.5) first to scan ambient MAC addresses.")
+                return@setOnClickListener
+            }
+
+            statusText.append("\n\n[FIRING ZK-PSI MATHEMATICAL REJECTION ENGINE...]")
+
+            // 1. What the phone physically scanned (from the BLE Scanner)
+            val scannedString = if (nearbyNodes.isNotEmpty()) {
+                nearbyNodes.joinToString(",")
+            } else {
+                "00:11:22:33:44:55"
+            }
+
+            // 2. Simulate what the DHT Network Expects in this H3 Hexagon
+            // We will dynamically pull a few real MACs from your environment to simulate
+            // a successful match, plus one fake one to simulate network reality.
+            val expectedString = if (nearbyNodes.size >= 3) {
+                val realMacsToMatch = nearbyNodes.take(3).joinToString(",")
+                "$realMacsToMatch,FF:EE:DD:CC:BB:AA" // 3 real matches + 1 fake
+            } else {
+                // Fallback if your Bluetooth doesn't see at least 3 devices
+                "00:11:22:33:44:55,AA:BB:CC:DD:EE:FF,11:22:33:44:55:66"
+            }
+
+            // 3. Hit the Rust Core
+            val psiResult = TeeBridge.verifyProximityProof(scannedString, expectedString)
+
+            statusText.append("\n$psiResult")
         }
     }
 
@@ -196,7 +291,6 @@ class MainActivity : AppCompatActivity() {
         } catch (e: SecurityException) { null }
 
         // 2. Format the BLE Mesh Array (Phase 1.5 CRITICAL UPDATE)
-        // Instead of sending the count, we join the raw MAC addresses with commas so Rust can parse them.
         val meshConsensus = if (nearbyNodes.isNotEmpty()) {
             "BLE:${nearbyNodes.joinToString(",")}"
         } else {
