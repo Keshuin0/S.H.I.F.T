@@ -3,7 +3,7 @@
 #![allow(unused_assignments)]
 
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
-mod ranging;
+mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
@@ -459,29 +459,21 @@ pub extern "system" fn Java_com_shift_core_TeeBridge_pingVault<'local>(
             let display_id = if identity.len() > 8 { &identity[identity.len() - 8..] } else { identity };
 
             // ⚡ PHASE 1.6: CRYPTOGRAPHIC DISTANCE BOUNDING & ZK-SNARK RECEIPT
-            
-            // 1. Ignite the Hardware Ranging Challenge
             let challenge = ranging::initiate_ranging_challenge();
             
-            // 2. Simulate a Peer's Fast-Response (Usually happens over UWB/BLE baseband)
-            // We simulate it here so the engine has live nanosecond data to feed the ZK-Circuit
             let dummy_peer_key = identity::Keypair::generate_ed25519();
             let (signature, compute_delay) = ranging::process_ranging_challenge(&challenge.nonce, &dummy_peer_key);
-            
-            // Simulate radio propagation delay (e.g., peer is physically close: ~100ns round trip air time)
             let simulated_rx_time = challenge.tx_timestamp_ns + compute_delay + 100;
             
-            let response = ranging::RangingResponse {
+            let response_obj = ranging::RangingResponse {
                 signature,
                 compute_delay_ns: compute_delay,
                 rx_timestamp_ns: simulated_rx_time,
             };
 
-            // 3. Verify the Speed of Light & Generate the ZK-Proof
             let mut zksnark_receipt = String::new();
-            match ranging::verify_time_of_flight(&challenge, &response, &dummy_peer_key.public()) {
+            match ranging::verify_time_of_flight(&challenge, &response_obj, &dummy_peer_key.public()) {
                 Ok((delta_t, t_compute)) => {
-                    // Compress the raw nanoseconds into a zero-knowledge proof (50,000mm / 50m radius)
                     zksnark_receipt = zk_engine::generate_tof_proof(delta_t, t_compute, 50_000);
                     
                     if let Some(tx) = MESH_TX.get() {
@@ -499,6 +491,12 @@ pub extern "system" fn Java_com_shift_core_TeeBridge_pingVault<'local>(
                     response = "Execution Denied: Cryptographic Distance Bounding Failed. Relay Attack Detected.".to_string();
                 }
             }
+        } else if node_id.is_none() {
+            response = "Execution Denied: Node Identity not found.".to_string();
+        } else {
+            response = "Execution Denied: Soulbound Token (KYC) not found.".to_string();
+        }
+    }
     else if command.starts_with("FIRE_LOCK:") {
         let target_zone = command.replace("FIRE_LOCK:", "");
         
