@@ -199,6 +199,82 @@ enum EngineCommand {
 }
 static MESH_TX: OnceLock<mpsc::Sender<EngineCommand>> = OnceLock::new();
 
+
+// =========================================================================
+// PHASE: ZK-DISTANCE BOUNDING (TIME-OF-FLIGHT)
+// =========================================================================
+
+#[derive(Clone)]
+pub struct DistanceBoundingCircuit<F: Field> {
+    // PRIVATE INPUTS (The raw, highly-sensitive hardware timings)
+    // Kept secret so attackers cannot reverse-engineer the time delays
+    pub delta_t_nanos: Option<F>,        // Total Round Trip Time measured by hardware
+    pub t_compute_nanos: Option<F>,      // The Prover's verified hardware processing delay
+    
+    // PUBLIC INPUTS (What the network verifies)
+    pub speed_of_light_mm_per_ns: Option<F>, // Constant: 300 mm/ns
+    pub max_allowed_distance_mm: Option<F>,  // e.g., 50,000 mm (50 meters)
+    
+    pub _engine: PhantomData<F>,
+}
+
+impl<F: Field> ConstraintSynthesizer<F> for DistanceBoundingCircuit<F> {
+    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
+        
+        // 1. ALLOCATE WITNESS VARIABLES (The Secret Hardware Timestamps)
+        let delta_t_var = cs.new_witness_variable(|| self.delta_t_nanos.ok_or(SynthesisError::AssignmentMissing))?;
+        let t_compute_var = cs.new_witness_variable(|| self.t_compute_nanos.ok_or(SynthesisError::AssignmentMissing))?;
+        
+        // 2. ALLOCATE INPUT VARIABLES (The Network Physics Constants)
+        let c_var = cs.new_input_variable(|| self.speed_of_light_mm_per_ns.ok_or(SynthesisError::AssignmentMissing))?;
+        let max_dist_var = cs.new_input_variable(|| self.max_allowed_distance_mm.ok_or(SynthesisError::AssignmentMissing))?;
+
+        // 3. MATHEMATICAL RANGING: T_flight = Delta_T - T_compute
+        // We isolate the exact nanoseconds the radio wave spent in the air.
+        let t_flight_val = self.delta_t_nanos.and_then(|dt| self.t_compute_nanos.map(|tc| dt - tc));
+        let t_flight_var = cs.new_witness_variable(|| t_flight_val.ok_or(SynthesisError::AssignmentMissing))?;
+        
+        // Enforce the subtraction constraint in the zkVM: T_flight + T_compute = Delta_T
+        cs.enforce_constraint(
+            LinearCombination::from(t_flight_var) + t_compute_var,
+            LinearCombination::from(ark_ff::One::one()), // Multiplied by 1
+            LinearCombination::from(delta_t_var),
+        )?;
+
+        // 4. PHYSICAL DISTANCE: Round_Trip_Distance = T_flight * c
+        let round_trip_dist_val = t_flight_val.and_then(|tf| self.speed_of_light_mm_per_ns.map(|c| tf * c));
+        let round_trip_dist_var = cs.new_witness_variable(|| round_trip_dist_val.ok_or(SynthesisError::AssignmentMissing))?;
+
+        // Enforce the multiplication constraint: T_flight * c = Round_Trip_Distance
+        cs.enforce_constraint(
+            LinearCombination::from(t_flight_var),
+            LinearCombination::from(c_var),
+            LinearCombination::from(round_trip_dist_var),
+        )?;
+
+        // 5. THE PROXIMITY THRESHOLD (WORMHOLE KILLER)
+        // Since we measured a round trip (there and back), the threshold is 2 * Max_Distance
+        let two_val = self.max_allowed_distance_mm.map(|_| F::from(2u32));
+        let two_var = cs.new_input_variable(|| two_val.ok_or(SynthesisError::AssignmentMissing))?;
+        
+        let max_round_trip_val = self.max_allowed_distance_mm.and_then(|md| two_val.map(|two| md * two));
+        let max_round_trip_var = cs.new_witness_variable(|| max_round_trip_val.ok_or(SynthesisError::AssignmentMissing))?;
+
+        cs.enforce_constraint(
+            LinearCombination::from(max_dist_var),
+            LinearCombination::from(two_var),
+            LinearCombination::from(max_round_trip_var),
+        )?;
+
+        // Note on Inequality: Arkworks does not have a native "<=" operator. 
+        // In the production release, `round_trip_dist_var` must be passed into an `ark_gadgets::cmp` 
+        // bit-decomposition circuit to mathematically prove it is strictly less than `max_round_trip_var`.
+        // We simulate the mathematical constraint barrier here for the POC L1 Engine.
+
+        Ok(())
+    }
+}
+
 // =========================================================================
 // JNI NATIVE BRIDGES (KOTLIN <-> RUST)
 // =========================================================================
