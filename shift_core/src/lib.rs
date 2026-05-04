@@ -2,6 +2,8 @@
 #![allow(unused_variables)] 
 #![allow(unused_assignments)]
 
+mod zk_engine;
+
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::jstring;
