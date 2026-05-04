@@ -67,6 +67,20 @@ class MainActivity : AppCompatActivity() {
         genesisButton.text = "EXECUTE: PHASE 3.1 (Mint Genesis Block)"
         layout.addView(genesisButton)
 
+        // (Place this near your other button declarations)
+        val zkvmButton = Button(this)
+        zkvmButton.text = "EXECUTE: PHASE 4.1 (Ignite On-Device zkVM)"
+        layout.addView(zkvmButton)
+
+        // The Click Listener
+        zkvmButton.setOnClickListener {
+            statusText.append("\n\n[ALLOCATING MEMORY FOR NOVA IVC FOLDING...]")
+
+            // Hit the Rust Core
+            val vmResponse = TeeBridge.igniteZkVM()
+            statusText.append("\n$vmResponse")
+        }
+
         // NEW: Phase 3 - Mathematical Rejection Engine Trigger
         val zkPsiButton = Button(this)
         zkPsiButton.text = "EXECUTE: PHASE 3 (Test zk-PSI Rejection Engine)"
