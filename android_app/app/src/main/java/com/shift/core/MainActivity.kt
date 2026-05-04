@@ -89,6 +89,11 @@ class MainActivity : AppCompatActivity() {
         layout.addView(statusText)
         setContentView(layout)
 
+        // (Place this under your zkPsiButton setup)
+        val pricingButton = Button(this)
+        pricingButton.text = "EXECUTE: PHASE 4.3 (Hybrid Market-Maker & zkVM)"
+        layout.addView(pricingButton)
+
         // 1. BOOT SEQUENCE
         try {
             val publicKeyHex = generateTrustZoneKey("SHIFT_SOVEREIGN_NODE_ID")
