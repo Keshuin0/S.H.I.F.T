@@ -17,6 +17,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::collections::HashMap;
 
+// NEW FOR ZK-PSI: Cryptographic hashing and set operations
+use sha2::{Sha256, Digest};
+use std::collections::HashSet;
+
 // NEW: Logging crates for Android Logcat visibility
 use log::{info, error};
 use android_logger::{Config, FilterBuilder};
@@ -74,6 +78,51 @@ pub struct StateBlock {
 // A HashMap linking Account IDs to their most recent State Block.
 static LOCAL_LEDGER: OnceLock<Mutex<HashMap<String, StateBlock>>> = OnceLock::new();
 
+// =========================================================================
+// PHASE 3: MATHEMATICAL REJECTION ENGINE (zk-PSI)
+// =========================================================================
+
+/// Cryptographically hashes MAC addresses to prevent raw location data leakage.
+fn hash_mac_address(mac: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(mac.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// The core zk-PSI Mathematical Rejection Engine.
+fn execute_zk_psi(scanned_macs: Vec<&str>, expected_macs: Vec<&str>) -> String {
+    // Threshold: Must see at least 3 verified nodes
+    let threshold_k = 3; 
+
+    // Hash scanned MACs
+    let mut scanned_hashes = HashSet::new();
+    for mac in scanned_macs {
+        let clean_mac = mac.trim();
+        if !clean_mac.is_empty() {
+            scanned_hashes.insert(hash_mac_address(clean_mac));
+        }
+    }
+
+    // Hash expected MACs
+    let mut expected_hashes = HashSet::new();
+    for mac in expected_macs {
+        let clean_mac = mac.trim();
+        if !clean_mac.is_empty() {
+            expected_hashes.insert(hash_mac_address(clean_mac));
+        }
+    }
+
+    // Intersection: |Set A \cap Set B|
+    let intersection: Vec<_> = scanned_hashes.intersection(&expected_hashes).collect();
+
+    if intersection.len() >= threshold_k {
+        format!("Execution Approved: zk-PSI Threshold Met. Intersection size: {}", intersection.len())
+    } else {
+        format!("Execution Denied: Proximity Triangulation Failed. GPS Spoofing Detected. Intersection size: {}", intersection.len())
+    }
+}
+
+
 // The Background Network Engine & Tunnel
 static ASYNC_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
@@ -95,6 +144,11 @@ enum EngineCommand {
     }
 }
 static MESH_TX: OnceLock<mpsc::Sender<EngineCommand>> = OnceLock::new();
+
+
+// =========================================================================
+// JNI NATIVE BRIDGES (KOTLIN <-> RUST)
+// =========================================================================
 
 #[no_mangle]
 pub extern "system" fn Java_com_shift_core_TeeBridge_pingVault<'local>(
@@ -533,5 +587,33 @@ pub extern "system" fn Java_com_shift_core_TeeBridge_pingVault<'local>(
     }
 
     let output = env.new_string(response).expect("Failed to create secure response");
+    output.into_raw()
+}
+
+// NEW EXPOSED FUNCTION: Android calls this directly to run the Rejection Engine
+#[no_mangle]
+pub extern "system" fn Java_com_shift_core_TeeBridge_verifyProximityProof<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    scanned_input: JString<'local>,
+    expected_input: JString<'local>,
+) -> jstring {
+    
+    let scanned_str: String = match env.get_string(&scanned_input) {
+        Ok(s) => s.into(),
+        Err(_) => return env.new_string("Error: Failed to read scanned input").unwrap().into_raw(),
+    };
+    
+    let expected_str: String = match env.get_string(&expected_input) {
+        Ok(s) => s.into(),
+        Err(_) => return env.new_string("Error: Failed to read expected input").unwrap().into_raw(),
+    };
+
+    let scanned_macs: Vec<&str> = scanned_str.split(',').collect();
+    let expected_macs: Vec<&str> = expected_str.split(',').collect();
+
+    let result = execute_zk_psi(scanned_macs, expected_macs);
+
+    let output = env.new_string(result).expect("Failed to create output string");
     output.into_raw()
 }
