@@ -156,7 +156,7 @@ Phase 3: The Block-Lattice & Ledger (Financial Settlement)
 
 Phase 4: Execution, Economics, and AI Governance (The Brain)
 
-[ ] 4.1 On-Device zkVM: Embed a zero-knowledge Virtual Machine to run smart contracts locally on the phone.
+[✅] 4.1 On-Device zkVM: Embed a zero-knowledge Virtual Machine to run smart contracts locally on the phone.
 
 [ ] 4.2 The AI Brain (zkML Integration): Build the off-chain AI oracle and the on-chain verifier. Give the AI authority to dynamically adjust base rates, slash bad actors, and balance network load.
 
