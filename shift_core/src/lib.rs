@@ -17,6 +17,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::collections::HashMap;
 
+// NEW FOR PHASE 4.1: Mobile-Safe zkVM (Arkworks)
+use ark_ff::Field;
+use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+use ark_std::{marker::PhantomData, vec, vec::Vec};
+
 // NEW FOR ZK-PSI: Cryptographic hashing and set operations
 use sha2::{Sha256, Digest};
 use std::collections::HashSet;
