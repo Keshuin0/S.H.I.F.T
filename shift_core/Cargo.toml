@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
+name = "shift_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+sha2 = "0.10.8" # We need this for cryptographic hashing
+hex = "0.4.3"   # To encode the hashes
 jni = "0.21.1"
 tokio = { version = "1.35", features = ["full"] }
 arrayvec = "0.7"
