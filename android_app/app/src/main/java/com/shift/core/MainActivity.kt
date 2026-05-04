@@ -175,6 +175,8 @@ class MainActivity : AppCompatActivity() {
 
             statusText.append("\n$psiResult")
         }
+
+        
     }
 
     // PHASE 1.5: Modern Android Permission Gate
