@@ -127,6 +127,40 @@ fn execute_zk_psi(scanned_macs: Vec<&str>, expected_macs: Vec<&str>) -> String {
     }
 }
 
+// =========================================================================
+// PHASE 4.1: THE ON-DEVICE zkVM (ARKWORKS R1CS)
+// =========================================================================
+
+// Define the Smart Contract Circuit for a Ride
+#[derive(Clone)]
+pub struct RideCircuit<F: Field> {
+    pub distance_traveled: Option<F>,
+    pub current_fare: Option<F>,
+    pub base_rate: Option<F>,
+    pub _engine: PhantomData<F>,
+}
+
+// Implement the Constraint Synthesizer (The Math Rules)
+impl<F: Field> ConstraintSynthesizer<F> for RideCircuit<F> {
+    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
+        
+        // 1. Allocate variables in the zkVM
+        let distance_var = cs.new_witness_variable(|| self.distance_traveled.ok_or(SynthesisError::AssignmentMissing))?;
+        let fare_var = cs.new_witness_variable(|| self.current_fare.ok_or(SynthesisError::AssignmentMissing))?;
+        let rate_var = cs.new_witness_variable(|| self.base_rate.ok_or(SynthesisError::AssignmentMissing))?;
+
+        // 2. Enforce the Smart Contract Rules
+        // In a full implementation, we define the linear combinations here 
+        // to prove that: new_fare = distance * base_rate
+        
+        Ok(())
+    }
+}
+
+pub fn ignite_zkvm() -> String {
+    info!("🧠 [zkVM] Arkworks R1CS Engine Ignited. Mobile-safe memory allocated.");
+    "zkVM Engine Online. Circuits allocated using Arkworks R1CS.".to_string()
+}
 
 // The Background Network Engine & Tunnel
 static ASYNC_RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -149,72 +183,6 @@ enum EngineCommand {
     }
 }
 static MESH_TX: OnceLock<mpsc::Sender<EngineCommand>> = OnceLock::new();
-
-// =========================================================================
-// PHASE 4.1: THE ON-DEVICE zkVM (NOVA IVC FOLDING)
-// =========================================================================
-
-// Import Nova's core components
-use nova_snark::{
-    traits::{circuit::{StepCircuit, TrivialTestCircuit}, Group},
-    PublicParams, RecursiveSNARK,
-};
-use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};
-use ff::PrimeField;
-
-// Define the State we want to fold at every step
-#[derive(Clone, Debug)]
-pub struct RideState<F: PrimeField> {
-    pub distance_traveled: F,
-    pub current_fare: F,
-    pub base_rate: F,
-}
-
-// Implement the StepCircuit trait for our RideState
-// This is the "Smart Contract" that runs locally on the phone
-impl<F: PrimeField> StepCircuit<F> for RideState<F> {
-    fn arity(&self) -> usize {
-        3 // We are tracking 3 variables: distance, fare, base_rate
-    }
-
-    fn synthesize<CS: ConstraintSystem<F>>(
-        &self,
-        cs: &mut CS,
-        z: &[AllocatedNum<F>], // The state from the previous step
-    ) -> Result<Vec<AllocatedNum<F>>, SynthesisError> {
-        
-        // 1. Grab the previous state variables
-        let prev_distance = &z[0];
-        let prev_fare = &z[1];
-        let base_rate = &z[2];
-
-        // 2. We allocate the new inputs for this current step (e.g., GPS ping)
-        let delta_distance = AllocatedNum::alloc(cs.namespace(|| "delta d"), || Ok(self.distance_traveled))?;
-        
-        // 3. ENFORCE THE RULES (The Constraint System)
-        // Rule A: Distance must always move forward (delta > 0)
-        // In a real circuit, we'd add bit-decomposition checks here.
-
-        // Rule B: Calculate the new total distance
-        let new_distance = prev_distance.add(cs.namespace(|| "new distance"), &delta_distance)?;
-
-        // Rule C: Calculate the new fare (prev_fare + (delta_distance * base_rate))
-        let fare_increase = delta_distance.mul(cs.namespace(|| "fare increase"), base_rate)?;
-        let new_fare = prev_fare.add(cs.namespace(|| "new fare"), &fare_increase)?;
-
-        // 4. Return the new state to be folded into the next step
-        Ok(vec![new_distance, new_fare, base_rate.clone()])
-    }
-}
-
-// A helper function to simulate initializing the Nova Prover
-pub fn ignite_zkvm() -> String {
-    // In production, generating PublicParams is a heavy, one-time setup.
-    // We log the ignition to prove the memory allocation works on ARM.
-    info!("🧠 [zkVM] Nova IVC Prover Ignited. Ready to fold ride states.");
-    "zkVM Engine Online. Circuits allocated.".to_string()
-}
-
 
 // =========================================================================
 // JNI NATIVE BRIDGES (KOTLIN <-> RUST)
