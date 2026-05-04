@@ -8,7 +8,7 @@ use ark_std::{marker::PhantomData, vec::Vec};
 use ark_groth16::Groth16;
 use ark_snark::SNARK;
 use ark_bls12_381::{Bls12_381, Fr}; // The standard elliptic curve for ZK-SNARKs
-use rand::thread_rng;
+use ark_std::rand::thread_rng;
 use log::{info};
 
 // =========================================================================
