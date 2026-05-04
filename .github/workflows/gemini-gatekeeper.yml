@@ -1,0 +1,89 @@
+name: The Gemini Gatekeeper (AI Auditor)
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  audit_ledger:
+    name: Neural Cryptographic Audit
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+    - name: Download Ledger State
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Extract State Mutation (Diff)
+      run: git diff origin/main...HEAD > pr_diff.txt
+
+    - name: Ignite Gemini Neural Engine
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Upgraded to bypass the EOL warning
+
+    - name: Install Architecture Dependencies
+      run: pip install google-genai requests # Upgraded to the new SDK
+
+    - name: Execute Autonomous Audit
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        python -c "
+        import os, sys, requests
+        from google import genai
+
+        # Initialize the bleeding-edge Client architecture
+        client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+
+        with open('pr_diff.txt', 'r') as f:
+            diff = f.read()
+
+        if not diff.strip():
+            print('No changes detected in diff.')
+            sys.exit(0)
+
+        prompt = f'''
+        You are the Sovereign AI Gatekeeper for the S.H.I.F.T. Layer-1 Blockchain Network.
+        Your prime directive is to audit this Pull Request for cryptographic vulnerabilities, ARM TrustZone/JNI memory leaks, and logic flaws in the Rust Vault or Kotlin UI.
+
+        Review the following code diff. 
+        If the code is flawless and mathematically sound, start your response strictly with the word **APPROVE**.
+        If there are ANY vulnerabilities, memory leaks, or compromises in decentralization, start your response strictly with the word **REJECT**.
+        Follow your decision with a detailed, ruthless architectural breakdown.
+
+        DIFF:
+        {diff}
+        '''
+
+        try:
+            # Firing the payload to the developer API endpoint
+            response = client.models.generate_content(
+                model='gemini-3.1-pro-preview',
+                contents=prompt
+            )
+            review_text = response.text
+        except Exception as e:
+            review_text = f'**REJECT**: Neural Engine Failure during audit. Details: {str(e)}'
+            print('Exception occurred while generating content:', e) 
+
+        # Fire the audit results back to the GitHub PR
+        url = f'https://api.github.com/repos/{os.environ[\"GITHUB_REPOSITORY\"]}/issues/{os.environ[\"PR_NUMBER\"]}/comments'
+        headers = {'Authorization': f'Bearer {os.environ[\"GITHUB_TOKEN\"]}', 'Accept': 'application/vnd.github.v3+json'}
+        
+        requests.post(url, headers=headers, json={'body': review_text})
+
+        # Physical Ledger Lock based on AI decision
+        if 'REJECT' in review_text[:20]:
+            print('Gatekeeper Rejected the PR.')
+            sys.exit(1)
+        else:
+            print('Gatekeeper Approved the PR.')
+        "
