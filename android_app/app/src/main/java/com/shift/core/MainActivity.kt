@@ -33,6 +33,9 @@ object TeeBridge {
     
     // NEW: Phase 3 - The Mathematical Rejection Engine (zk-PSI)
     external fun verifyProximityProof(scannedMacs: String, expectedMacs: String): String
+
+    // NEW: Phase 4.1 - The zkVM
+    external fun igniteZkVM(): String
 }
 
 class MainActivity : AppCompatActivity() {
