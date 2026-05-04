@@ -131,21 +131,26 @@ class MainActivity : AppCompatActivity() {
             statusText.append("\n\n[FIRING ZK-PSI MATHEMATICAL REJECTION ENGINE...]")
 
             // 1. What the phone physically scanned (from the BLE Scanner)
-            // If the set is empty (you are alone), we will inject a dummy MAC just so the test runs without crashing.
             val scannedString = if (nearbyNodes.isNotEmpty()) {
                 nearbyNodes.joinToString(",")
             } else {
-                "00:11:22:33:44:55" 
+                "00:11:22:33:44:55"
             }
 
             // 2. Simulate what the DHT Network Expects in this H3 Hexagon
-            // We are hardcoding a successful intersection here (assuming the dummy MAC or a real MAC matches) 
-            // mixed with some random MACs to prove the math works.
-            val expectedString = "00:11:22:33:44:55,AA:BB:CC:DD:EE:FF,11:22:33:44:55:66"
+            // We will dynamically pull a few real MACs from your environment to simulate
+            // a successful match, plus one fake one to simulate network reality.
+            val expectedString = if (nearbyNodes.size >= 3) {
+                val realMacsToMatch = nearbyNodes.take(3).joinToString(",")
+                "$realMacsToMatch,FF:EE:DD:CC:BB:AA" // 3 real matches + 1 fake
+            } else {
+                // Fallback if your Bluetooth doesn't see at least 3 devices
+                "00:11:22:33:44:55,AA:BB:CC:DD:EE:FF,11:22:33:44:55:66"
+            }
 
             // 3. Hit the Rust Core
             val psiResult = TeeBridge.verifyProximityProof(scannedString, expectedString)
-            
+
             statusText.append("\n$psiResult")
         }
     }
