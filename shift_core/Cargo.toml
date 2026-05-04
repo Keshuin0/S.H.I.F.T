@@ -17,7 +17,7 @@ log = "0.4"
 android_logger = "0.13"
 
 # PHASE 2.1 UPGRADE: Added tcp, noise, and yamux for robust firewall fallback
-libp2p = { version = "0.53", features = ["tokio", "quic", "tcp", "noise", "yamux", "gossipsub", "macros", "kad", "mdns", "autonat", "relay", "dcutr", "identify", "ping"] }
+libp2p = { version = "0.53.2", features = ["tcp", "noise", "yamux", "quic", "gossipsub", "kad", "mdns", "identify", "ping", "autonat", "dcutr", "relay", "macros", "tokio"] }
 
 # PHASE 2.3: The Pinnacle Spatial Indexing (Uber H3)
 h3o = "0.9.4"
