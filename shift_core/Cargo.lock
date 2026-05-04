@@ -3256,6 +3256,7 @@ dependencies = [
  "libp2p",
  "log",
  "nova-snark",
+ "pasta_curves",
  "sha2",
  "tokio",
 ]
