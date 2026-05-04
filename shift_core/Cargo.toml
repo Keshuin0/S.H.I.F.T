@@ -8,22 +8,20 @@ name = "shift_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-sha2 = "0.10.8" # We need this for cryptographic hashing
-hex = "0.4.3"   # To encode the hashes
 jni = "0.21.1"
-tokio = { version = "1.35", features = ["full"] }
-arrayvec = "0.7.4"
-log = "0.4.21"
-android_logger = "0.13.3"
-
-# PHASE 2.1 UPGRADE: Added tcp, noise, and yamux for robust firewall fallback
+tokio = { version = "1.37.0", features = ["full"] }
 libp2p = { version = "0.53.2", features = ["tcp", "noise", "yamux", "quic", "gossipsub", "kad", "mdns", "identify", "ping", "autonat", "dcutr", "relay", "macros", "tokio"] }
-
-# PHASE 2.3: The Pinnacle Spatial Indexing (Uber H3)
 h3o = "0.9.4"
+arrayvec = "0.7.4"
+android_logger = "0.13.3"
+log = "0.4.21"
+sha2 = "0.10.8"
+hex = "0.4.3"
 
-# NEW: The Nova IVC Cryptography Stack (Hard-locking the ASM bypass)
-nova-snark = { version = "0.24.0", default-features = false, features = ["std"] }
+# The Nova IVC Cryptography Stack
+nova-snark = { version = "0.24.0", default-features = false }
 bellpepper-core = { version = "0.3.0", default-features = false }
 ff = { version = "0.13.0", default-features = false }
+
+# CRITICAL: We explicitly disable default features to kill 'asm'
 pasta_curves = { version = "0.5.1", default-features = false, features = ["repr-c"] }
