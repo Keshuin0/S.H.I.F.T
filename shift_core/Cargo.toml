@@ -26,3 +26,7 @@ h3o = "0.9.4"
 nova-snark = "0.24.0"
 bellpepper-core = "0.3.0"
 ff = "0.13.0"
+
+# NEW: We must explicitly disable the Assembly ('asm') feature 
+# that is causing the Android NDK clang compiler to crash.
+pasta_curves = { version = "0.5.1", default-features = false, features = ["repr-c"] }
