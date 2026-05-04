@@ -2,7 +2,7 @@
 #![allow(unused_variables)] 
 #![allow(unused_assignments)]
 
-mod zk_engine;
+mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
@@ -18,11 +18,6 @@ use std::fmt::Write; // Required for zero-allocation string writing
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::collections::HashMap;
-
-// NEW FOR PHASE 4.1 & 4.3: Mobile-Safe zkVM and Pricing Engine
-use ark_ff::Field;
-use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError, LinearCombination};
-use ark_std::{marker::PhantomData, vec, vec::Vec};
 
 // NEW FOR ZK-PSI: Cryptographic hashing and set operations
 use sha2::{Sha256, Digest};
@@ -118,69 +113,6 @@ fn execute_zk_psi(scanned_macs: Vec<&str>, expected_macs: Vec<&str>) -> String {
     }
 }
 
-// =========================================================================
-// PHASE 4.3: HYBRID MARKET-MAKER PRICING (ZK-CIRCUIT)
-// =========================================================================
-
-// Define the Smart Contract Circuit for a Ride
-#[derive(Clone)]
-pub struct RideCircuit<F: Field> {
-    // Private Inputs (The raw supply/demand numbers remain hidden)
-    pub active_drivers: Option<F>,
-    pub active_riders: Option<F>,
-    pub distance_miles: Option<F>,
-    
-    // Public Inputs (What the network verifies)
-    pub base_rate_per_mile: Option<F>,
-    pub final_negotiated_fare: Option<F>,
-    
-    pub _engine: PhantomData<F>,
-}
-
-// Implement the Constraint Synthesizer (The Math Rules)
-impl<F: Field> ConstraintSynthesizer<F> for RideCircuit<F> {
-    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        
-        // 1. Allocate variables in the zkVM
-        let drivers_var = cs.new_witness_variable(|| self.active_drivers.ok_or(SynthesisError::AssignmentMissing))?;
-        let riders_var = cs.new_witness_variable(|| self.active_riders.ok_or(SynthesisError::AssignmentMissing))?;
-        let dist_var = cs.new_witness_variable(|| self.distance_miles.ok_or(SynthesisError::AssignmentMissing))?;
-        
-        let base_rate_var = cs.new_input_variable(|| self.base_rate_per_mile.ok_or(SynthesisError::AssignmentMissing))?;
-        let final_fare_var = cs.new_input_variable(|| self.final_negotiated_fare.ok_or(SynthesisError::AssignmentMissing))?;
-
-        // 2. ENFORCE THE RULES (The Constraint System)
-        
-        // Rule A: The Minimum Operating Cost Floor
-        // We enforce that Final Fare >= Distance * Base Rate
-        // This prevents the "Race to the Bottom" in P2P bidding.
-        
-        // In Arkworks, we prove A * B = C. 
-        // Let's create an intermediate variable for Minimum Cost = Distance * Base Rate
-        let min_cost_val = self.distance_miles.and_then(|d| self.base_rate_per_mile.map(|r| d * r));
-        let min_cost_var = cs.new_witness_variable(|| min_cost_val.ok_or(SynthesisError::AssignmentMissing))?;
-        
-        // Enforce the multiplication constraint: Distance * Base Rate = Minimum Cost
-        cs.enforce_constraint(
-            LinearCombination::from(dist_var),
-            LinearCombination::from(base_rate_var),
-            LinearCombination::from(min_cost_var),
-        )?;
-
-        // Note: Enforcing inequality (Final Fare >= Minimum Cost) requires a boolean 
-        // bit-decomposition constraint circuit, which is heavy for this POC. 
-        // We simulate the mathematical intent here.
-
-        Ok(())
-    }
-}
-
-pub fn ignite_zkvm() -> String {
-    // We log the ignition to prove the memory allocation works on ARM.
-    info!("🧠 [zkVM] Hybrid Market-Maker R1CS Circuits loaded into memory.");
-    "zkVM Engine Online. Algorithmic Pricing circuits allocated.".to_string()
-}
-
 // The Background Network Engine & Tunnel
 static ASYNC_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
@@ -200,82 +132,6 @@ enum EngineCommand {
     }
 }
 static MESH_TX: OnceLock<mpsc::Sender<EngineCommand>> = OnceLock::new();
-
-
-// =========================================================================
-// PHASE: ZK-DISTANCE BOUNDING (TIME-OF-FLIGHT)
-// =========================================================================
-
-#[derive(Clone)]
-pub struct DistanceBoundingCircuit<F: Field> {
-    // PRIVATE INPUTS (The raw, highly-sensitive hardware timings)
-    // Kept secret so attackers cannot reverse-engineer the time delays
-    pub delta_t_nanos: Option<F>,        // Total Round Trip Time measured by hardware
-    pub t_compute_nanos: Option<F>,      // The Prover's verified hardware processing delay
-    
-    // PUBLIC INPUTS (What the network verifies)
-    pub speed_of_light_mm_per_ns: Option<F>, // Constant: 300 mm/ns
-    pub max_allowed_distance_mm: Option<F>,  // e.g., 50,000 mm (50 meters)
-    
-    pub _engine: PhantomData<F>,
-}
-
-impl<F: Field> ConstraintSynthesizer<F> for DistanceBoundingCircuit<F> {
-    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        
-        // 1. ALLOCATE WITNESS VARIABLES (The Secret Hardware Timestamps)
-        let delta_t_var = cs.new_witness_variable(|| self.delta_t_nanos.ok_or(SynthesisError::AssignmentMissing))?;
-        let t_compute_var = cs.new_witness_variable(|| self.t_compute_nanos.ok_or(SynthesisError::AssignmentMissing))?;
-        
-        // 2. ALLOCATE INPUT VARIABLES (The Network Physics Constants)
-        let c_var = cs.new_input_variable(|| self.speed_of_light_mm_per_ns.ok_or(SynthesisError::AssignmentMissing))?;
-        let max_dist_var = cs.new_input_variable(|| self.max_allowed_distance_mm.ok_or(SynthesisError::AssignmentMissing))?;
-
-        // 3. MATHEMATICAL RANGING: T_flight = Delta_T - T_compute
-        // We isolate the exact nanoseconds the radio wave spent in the air.
-        let t_flight_val = self.delta_t_nanos.and_then(|dt| self.t_compute_nanos.map(|tc| dt - tc));
-        let t_flight_var = cs.new_witness_variable(|| t_flight_val.ok_or(SynthesisError::AssignmentMissing))?;
-        
-        // Enforce the subtraction constraint in the zkVM: T_flight + T_compute = Delta_T
-        cs.enforce_constraint(
-            LinearCombination::from(t_flight_var) + t_compute_var,
-            LinearCombination::from(ark_ff::One::one()), // Multiplied by 1
-            LinearCombination::from(delta_t_var),
-        )?;
-
-        // 4. PHYSICAL DISTANCE: Round_Trip_Distance = T_flight * c
-        let round_trip_dist_val = t_flight_val.and_then(|tf| self.speed_of_light_mm_per_ns.map(|c| tf * c));
-        let round_trip_dist_var = cs.new_witness_variable(|| round_trip_dist_val.ok_or(SynthesisError::AssignmentMissing))?;
-
-        // Enforce the multiplication constraint: T_flight * c = Round_Trip_Distance
-        cs.enforce_constraint(
-            LinearCombination::from(t_flight_var),
-            LinearCombination::from(c_var),
-            LinearCombination::from(round_trip_dist_var),
-        )?;
-
-        // 5. THE PROXIMITY THRESHOLD (WORMHOLE KILLER)
-        // Since we measured a round trip (there and back), the threshold is 2 * Max_Distance
-        let two_val = self.max_allowed_distance_mm.map(|_| F::from(2u32));
-        let two_var = cs.new_input_variable(|| two_val.ok_or(SynthesisError::AssignmentMissing))?;
-        
-        let max_round_trip_val = self.max_allowed_distance_mm.and_then(|md| two_val.map(|two| md * two));
-        let max_round_trip_var = cs.new_witness_variable(|| max_round_trip_val.ok_or(SynthesisError::AssignmentMissing))?;
-
-        cs.enforce_constraint(
-            LinearCombination::from(max_dist_var),
-            LinearCombination::from(two_var),
-            LinearCombination::from(max_round_trip_var),
-        )?;
-
-        // Note on Inequality: Arkworks does not have a native "<=" operator. 
-        // In the production release, `round_trip_dist_var` must be passed into an `ark_gadgets::cmp` 
-        // bit-decomposition circuit to mathematically prove it is strictly less than `max_round_trip_var`.
-        // We simulate the mathematical constraint barrier here for the POC L1 Engine.
-
-        Ok(())
-    }
-}
 
 // =========================================================================
 // JNI NATIVE BRIDGES (KOTLIN <-> RUST)
@@ -600,18 +456,23 @@ pub extern "system" fn Java_com_shift_core_TeeBridge_pingVault<'local>(
             let cryptogram_str = format!("{:x}", cryptogram);
             
             let display_id = if identity.len() > 8 { &identity[identity.len() - 8..] } else { identity };
+
+            // ⚡ PHASE 1.6: INJECT ZK-SNARK DISTANCE BOUNDING RECEIPT
+            // Simulate a successful hardware ping: 450ns total round trip, 50ns processing delay, 50,000mm radius.
+            let zksnark_receipt = zk_engine::generate_tof_proof(450, 50, 50_000);
             
             if let Some(tx) = MESH_TX.get() {
-                let payload = format!("Node [...{}] deployed to H3 Hexagon: [{}] | BLE Peers: [{}] | Hash: {}", display_id, core_h3_zone.as_str(), extracted_ble, cryptogram_str);
+                // Appended the ZK-SNARK receipt directly into the network payload
+                let payload = format!("Node [...{}] deployed to H3 Hexagon: [{}] | BLE Peers: [{}] | Hash: {} | ZK-DB: {}", display_id, core_h3_zone.as_str(), extracted_ble, cryptogram_str, zksnark_receipt);
                 let _ = tx.try_send(EngineCommand::TransmitPoL {
                     global_topic: "shift-pol-network".to_string(),
-                    local_zone: core_h3_zone, 
+                    local_zone: core_h3_zone.clone(), 
                     payload,
                     k_rings: k_ring_zones.clone(), 
                 }); 
             }
 
-            response = format!("PoL Valid & Cleared.\nActive Shard: [{}]\nRadar K-Rings Active: {}\nNode: [...{}]\nBLE Signatures: {}\nHardware Hash: {}", core_h3_zone.as_str(), k_ring_zones.len(), display_id, extracted_ble, cryptogram_str);
+            response = format!("PoL Valid & Cleared.\nActive Shard: [{}]\nRadar K-Rings Active: {}\nNode: [...{}]\nBLE Signatures: {}\nHardware Hash: {}\nZK-Proof Generated.", core_h3_zone.as_str(), k_ring_zones.len(), display_id, extracted_ble, cryptogram_str);
         } else if node_id.is_none() {
             response = "Execution Denied: Node Identity not found.".to_string();
         } else {
@@ -686,18 +547,6 @@ pub extern "system" fn Java_com_shift_core_TeeBridge_pingVault<'local>(
     }
 
     let output = env.new_string(response).expect("Failed to create secure response");
-    output.into_raw()
-}
-
-#[no_mangle]
-pub extern "system" fn Java_com_shift_core_TeeBridge_igniteZkVM<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-) -> jstring {
-    
-    let result = ignite_zkvm();
-
-    let output = env.new_string(result).expect("Failed to create output string");
     output.into_raw()
 }
 
