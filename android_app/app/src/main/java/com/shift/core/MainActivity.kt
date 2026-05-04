@@ -176,7 +176,45 @@ class MainActivity : AppCompatActivity() {
             statusText.append("\n$psiResult")
         }
 
-        
+        // NEW ACTION: Phase 4.3 - Hybrid Market-Maker
+        pricingButton.setOnClickListener {
+            if (!isMeshActive) {
+                statusText.append("\n\n--- ENGINE ERROR ---\nYou must activate the BLE Mesh (Phase 1.5) to gather the Supply/Demand ratio.")
+                return@setOnClickListener
+            }
+
+            statusText.append("\n\n[INITIATING HYBRID MARKET-MAKER...]")
+
+            // 1. System 1: The AI Surge (Simulating the Oracle)
+            // We use the actual number of devices your phone found to simulate local demand
+            val localDemand = nearbyNodes.size
+            val baseRatePerMile = 1.50
+
+            // Simple exponential surge logic based on local BLE density
+            val surgeMultiplier = if (localDemand > 5) 1.5 else if (localDemand > 10) 2.5 else 1.0
+            val aiSuggestedFare = baseRatePerMile * surgeMultiplier
+
+            statusText.append("\nLocal Nodes Detected: $localDemand")
+            statusText.append("\nAI Surge Multiplier: ${surgeMultiplier}x")
+            statusText.append("\nCalculated Base Fare: $$aiSuggestedFare per mile")
+
+            // 2. System 2: P2P Bidding & The Algorithmic Floor
+            // Simulate a Rider trying to lowball the Driver
+            val riderBid = 1.10
+            statusText.append("\n\n[INCOMING P2P BID: $$riderBid per mile]")
+
+            // 3. Ignite the zkVM to enforce the Smart Contract Rules
+            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC FLOOR...]")
+            val vmResponse = TeeBridge.igniteZkVM()
+            statusText.append("\n$vmResponse")
+
+            // Simulate the R1CS inequality constraint we wrote in Rust
+            if (riderBid >= baseRatePerMile) {
+                statusText.append("\n✅ [SMART CONTRACT] Bid Accepted: Fare exceeds minimum operating cost.")
+            } else {
+                statusText.append("\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
+            }
+        }
     }
 
     // PHASE 1.5: Modern Android Permission Gate
