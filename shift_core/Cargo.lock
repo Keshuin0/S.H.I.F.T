@@ -2769,9 +2769,11 @@ dependencies = [
  "android_logger",
  "arrayvec",
  "h3o",
+ "hex",
  "jni",
  "libp2p",
  "log",
+ "sha2",
  "tokio",
 ]
 
