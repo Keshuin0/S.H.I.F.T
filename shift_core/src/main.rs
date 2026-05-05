@@ -147,17 +147,18 @@ fn main() {
 
     // 2. Bind to the designated port inside the VM 
     let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
+    // bind() takes a RawFd (i32)
     bind(fd.as_raw_fd(), &addr).expect("Failed to bind vsock port");
 
     // 3. Listen for incoming connections from the Kotlin OS
-    // FIX 2: Added the borrow symbol '&' as requested by the compiler
-    listen(&fd.as_raw_fd(), 10).expect("Failed to listen on vsock");
+    // listen() takes a reference to something that implements AsFd (like OwnedFd)
+    listen(&fd, 10).expect("Failed to listen on vsock");
     info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
 
     // 4. The Event Loop: Process commands from the Android App
     loop {
-        // FIX 3: Added the borrow symbol '&' to the accept call
-        match accept(&fd.as_raw_fd()) {
+        // accept() takes a RawFd (i32) and returns a RawFd (i32)
+        match accept(fd.as_raw_fd()) {
             Ok(client_raw_fd) => {
                 info!("🤝 [HYPERVISOR] Kotlin OS connection accepted.");
                 
