@@ -5,11 +5,12 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
-// Fixed the missing IntoRawFd
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
-use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr, SockAddr};
+
+// FIX 1: Removed SockAddr completely.
+use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr};
 
 use std::sync::OnceLock;
 use std::collections::hash_map::DefaultHasher; 
@@ -42,7 +43,6 @@ use h3o::{LatLng, Resolution, CellIndex};
 // THE SOVEREIGN STATE & P2P MESH
 // =========================================================================
 
-// Removed `mdns`, `autonat`, and `tcp` dependencies as we move to Wi-Fi Aware
 #[derive(NetworkBehaviour)]
 struct NodeBehaviour {
     gossipsub: gossipsub::Behaviour,
@@ -146,19 +146,18 @@ fn main() {
         .expect("Failed to create vsock");
 
     // 2. Bind to the designated port inside the VM 
-    // FIX 2: bind() requires RawFd (i32) and a direct reference to VsockAddr
     let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
     bind(fd.as_raw_fd(), &addr).expect("Failed to bind vsock port");
 
     // 3. Listen for incoming connections from the Kotlin OS
-    // FIX 3: listen() requires a reference (&fd)
-    listen(&fd, 10).expect("Failed to listen on vsock");
+    // FIX 2: Added the borrow symbol '&' as requested by the compiler
+    listen(&fd.as_raw_fd(), 10).expect("Failed to listen on vsock");
     info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
 
     // 4. The Event Loop: Process commands from the Android App
     loop {
-        // FIX 4: accept() requires a RawFd and returns a RawFd (i32)
-        match accept(fd.as_raw_fd()) {
+        // FIX 3: Added the borrow symbol '&' to the accept call
+        match accept(&fd.as_raw_fd()) {
             Ok(client_raw_fd) => {
                 info!("🤝 [HYPERVISOR] Kotlin OS connection accepted.");
                 
@@ -185,7 +184,7 @@ fn main() {
 }
 
 // =========================================================================
-// VAULT COMMAND PROCESSOR (Extracted from old pingVault)
+// VAULT COMMAND PROCESSOR 
 // =========================================================================
 fn process_vault_command(command: &str) -> String {
     let mut response = String::new();
@@ -210,14 +209,9 @@ fn process_vault_command(command: &str) -> String {
 
                     let (_relay_transport, relay_client) = relay::client::new(local_peer_id);
 
+                    // FIX 4: Removed .with_tcp() entirely because we dropped the dependency
                     let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
                         .with_tokio()
-                        .with_tcp(
-                            libp2p::tcp::Config::default(),
-                            libp2p::noise::Config::new,
-                            libp2p::yamux::Config::default,
-                        )
-                        .expect("Valid TCP Config")
                         .with_quic()
                         .with_relay_client(libp2p::noise::Config::new, libp2p::yamux::Config::default)
                         .expect("Valid Relay Config")
@@ -253,9 +247,7 @@ fn process_vault_command(command: &str) -> String {
                         .build();
 
                     swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap()).unwrap();
-                    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse().unwrap()).unwrap();
 
-                    // PHASE 1.6 UPDATE: Wait for incoming Wi-Fi Aware Connections instead of connecting to a static bootnode
                     info!("⌛ [WIFI AWARE] Swarm Listening for incoming NAN connections...");
 
                     let mut current_subscriptions: Vec<String> = Vec::new();
@@ -466,7 +458,6 @@ fn process_vault_command(command: &str) -> String {
             response = "Execution Denied: Malformed zk-PSI payload.".to_string();
         }
     }
-
     else {
         response = format!("Unrecognized or deprecated command: [{}]", command);
     }
