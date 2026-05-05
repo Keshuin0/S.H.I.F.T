@@ -23,15 +23,16 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
-import androidx.virtualmachine.VirtualMachine
-import androidx.virtualmachine.VirtualMachineConfig
-import androidx.virtualmachine.VirtualMachineManager
-import androidx.virtualmachine.VirtualMachineCallback
 import android.util.Log
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import kotlinx.coroutines.*
-import java.util.concurrent.Executors
+
+// ⚡ THE AVF BYPASS IMPORTS (AndroidX instead of android.system)
+import androidx.virtualmachine.VirtualMachine
+import androidx.virtualmachine.VirtualMachineConfig
+import androidx.virtualmachine.VirtualMachineManager
+import androidx.virtualmachine.VirtualMachineCallback
 
 // =========================================================================
 // PHASE 1.6: THE VSOCK HYPERVISOR BRIDGE
@@ -209,7 +210,7 @@ class MainActivity : AppCompatActivity() {
 
             val riderBid = 1.10
             statusText.append("\n\n[INCOMING P2P BID: $$riderBid per mile]")
-            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC FLOOR...]")
+            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC Floor...]")
 
             ioScope.launch {
                 val vmResponse = TeeBridge.sendCommand("IGNITE_ZKVM:")
