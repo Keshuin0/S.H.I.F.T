@@ -5,12 +5,11 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
+// Fixed the missing IntoRawFd
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
-
-// FIX 1: Removed 'SockAddr'. VsockAddr is used directly in Nix 0.27.1.
-use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr};
+use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr, SockAddr};
 
 use std::sync::OnceLock;
 use std::collections::hash_map::DefaultHasher; 
@@ -33,7 +32,7 @@ use log::LevelFilter;
 use arrayvec::{ArrayVec, ArrayString};
 
 use libp2p::{
-    gossipsub, identity, kad, mdns, identify, ping, autonat, dcutr, relay,
+    gossipsub, identity, kad, identify, ping, dcutr, relay,
     swarm::NetworkBehaviour, PeerId, SwarmBuilder,
     futures::StreamExt
 };
@@ -43,14 +42,13 @@ use h3o::{LatLng, Resolution, CellIndex};
 // THE SOVEREIGN STATE & P2P MESH
 // =========================================================================
 
+// Removed `mdns`, `autonat`, and `tcp` dependencies as we move to Wi-Fi Aware
 #[derive(NetworkBehaviour)]
 struct NodeBehaviour {
     gossipsub: gossipsub::Behaviour,
     kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    mdns: mdns::tokio::Behaviour,
     identify: identify::Behaviour,
     ping: ping::Behaviour,
-    autonat: autonat::Behaviour,
     dcutr: dcutr::Behaviour,
     relay_client: relay::client::Behaviour,
 }
