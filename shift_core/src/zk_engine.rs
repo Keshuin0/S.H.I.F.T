@@ -64,9 +64,12 @@ impl<F: Field> ConstraintSynthesizer<F> for DistanceBoundingCircuit<F> {
         let t_flight_val = self.delta_t_nanos.and_then(|dt| self.t_compute_nanos.map(|tc| dt - tc));
         let t_flight_var = cs.new_witness_variable(|| t_flight_val.ok_or(SynthesisError::AssignmentMissing))?;
         
+        // Explicitly create a linear combination with a constant '1'
+        let one: F = ark_ff::One::one();
+        
         cs.enforce_constraint(
             LinearCombination::from(t_flight_var) + t_compute_var,
-            LinearCombination::from(ark_ff::One::one()),
+            LinearCombination::from((one, ark_relations::r1cs::Variable::One)),
             LinearCombination::from(delta_t_var),
         )?;
 
