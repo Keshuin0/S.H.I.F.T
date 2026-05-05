@@ -23,6 +23,11 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import android.system.virtualmachine.VirtualMachine
+import android.system.virtualmachine.VirtualMachineConfig
+import android.system.virtualmachine.VirtualMachineManager
+import android.system.virtualmachine.VirtualMachineCallback
+import android.util.Log
 import java.io.File
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -83,7 +88,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // NEW: Phase 3 - Mathematical Rejection Engine Trigger
-        val zkPsiButton = Button(this)
+        val zkPsiButton = Button(this)S
         zkPsiButton.text = "EXECUTE: PHASE 3 (Test zk-PSI Rejection Engine)"
         layout.addView(zkPsiButton)
 
