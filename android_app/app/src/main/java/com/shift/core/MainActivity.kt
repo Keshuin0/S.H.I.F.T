@@ -220,15 +220,17 @@ class MainActivity : AppCompatActivity() {
         Log.i("SHIFT_AVF", "Initiating pKVM Hypervisor Ignition via Reflection Bypass...")
 
         try {
-            val vmmClass = Class.forName("android.system.virtualmachine.VirtualMachineManager")
-            val getInstanceMethod = vmmClass.getMethod("getInstance", Context::class.java)
-            val vmManager = getInstanceMethod.invoke(null, applicationContext)
+            // 1. Fetch the VirtualMachineManager directly as a System Service
+            val vmManager = applicationContext.getSystemService("virtualmachine")
 
             if (vmManager == null) {
-                statusText.append("\n❌ CRITICAL: OS restricts pKVM access on this device.")
+                statusText.append("\n❌ CRITICAL: OS restricts pKVM access on this device. Service not found.")
                 return
             }
 
+            val vmmClass = Class.forName("android.system.virtualmachine.VirtualMachineManager")
+
+            // 2. Build Config
             val builderClass = Class.forName("android.system.virtualmachine.VirtualMachineConfig\$Builder")
             val builder = builderClass.getConstructor(Context::class.java).newInstance(applicationContext)
 
@@ -248,9 +250,12 @@ class MainActivity : AppCompatActivity() {
 
             val config = builderClass.getMethod("build").invoke(builder)
             val configClass = Class.forName("android.system.virtualmachine.VirtualMachineConfig")
+
+            // 3. Get or Create VM
             val getOrCreateMethod = vmmClass.getMethod("getOrCreate", String::class.java, configClass)
             val vm = getOrCreateMethod.invoke(vmManager, "shift_vault_vm", config)
 
+            // 4. Create Callback Proxy
             val callbackClass = Class.forName("android.system.virtualmachine.VirtualMachineCallback")
             val proxy = Proxy.newProxyInstance(classLoader, arrayOf(callbackClass)) { _, method, args ->
                 when (method.name) {
@@ -277,6 +282,7 @@ class MainActivity : AppCompatActivity() {
                 null
             }
 
+            // 5. Set Callback and Run
             val vmClass = Class.forName("android.system.virtualmachine.VirtualMachine")
             vmClass.getMethod("setCallback", java.util.concurrent.Executor::class.java, callbackClass).invoke(vm, mainExecutor, proxy)
 
@@ -284,7 +290,7 @@ class MainActivity : AppCompatActivity() {
             vmClass.getMethod("run").invoke(vm)
 
         } catch (e: Exception) {
-            statusText.append("\n❌ [HYPERVISOR] Ignition Exception: ${e.message}\nMake sure AVF is supported and ADB permission is granted.")
+            statusText.append("\n❌ [HYPERVISOR] Ignition Exception: ${e.message}")
             Log.e("SHIFT_AVF", "Reflection failed", e)
         }
     }
