@@ -13,26 +13,24 @@ import android.content.pm.PackageManager
 import android.hardware.biometrics.BiometricPrompt
 import android.location.Location
 import android.location.LocationManager
-import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
-import android.util.Log
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import kotlinx.coroutines.*
 
-// ⚡ THE AVF BYPASS IMPORTS (AndroidX instead of android.system)
-import androidx.virtualmachine.VirtualMachine
-import androidx.virtualmachine.VirtualMachineConfig
-import androidx.virtualmachine.VirtualMachineManager
-import androidx.virtualmachine.VirtualMachineCallback
+// ⚡ RESTORED: The Official Android 15 AVF APIs
+import android.system.virtualmachine.VirtualMachine
+import android.system.virtualmachine.VirtualMachineConfig
+import android.system.virtualmachine.VirtualMachineManager
+import android.system.virtualmachine.VirtualMachineCallback
 
 // =========================================================================
 // PHASE 1.6: THE VSOCK HYPERVISOR BRIDGE
@@ -46,14 +44,15 @@ object TeeBridge {
         val vm = activeVm ?: return "❌ Execution Denied: Hypervisor is offline. Ignite pKVM first."
 
         return try {
-            val socket = vm.connectToVsockServer(VSOCK_PORT)
+            // FIX: The official API method is connectVsock
+            val socket = vm.connectVsock(VSOCK_PORT)
 
             // Stream the command into the secure enclave
             socket.outputStream.write(command.toByteArray())
             socket.outputStream.flush()
 
-            // Read the Rust Vault's response
-            val response = socket.inputStream.bufferedReader().use { it.readText() }
+            // Read the Rust Vault's response safely
+            val response = socket.inputStream.bufferedReader().readText()
             socket.close()
 
             response
@@ -115,11 +114,7 @@ class MainActivity : AppCompatActivity() {
         // TRIGGER PHASE 1.6: Ignite pKVM Hypervisor
         avfButton.setOnClickListener {
             statusText.append("\n\n[REQUESTING TYPE-1 HYPERVISOR LEASE...]")
-            if (Build.VERSION.SDK_INT >= 34) {
-                igniteHypervisor()
-            } else {
-                statusText.append("\n❌ HARDWARE ERROR: Android 14+ required for AVF pKVM.")
-            }
+            igniteHypervisor()
         }
 
         // TRIGGER PHASE 1.5: Proximity Mesh
@@ -129,9 +124,7 @@ class MainActivity : AppCompatActivity() {
                     startBleMesh()
                     statusText.append("\n\n[Activating BLE/Wi-Fi Aware Mesh. Scanning Environment...]")
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    triggerBiometricGate()
-                }
+                triggerBiometricGate()
             }
         }
 
@@ -210,7 +203,7 @@ class MainActivity : AppCompatActivity() {
 
             val riderBid = 1.10
             statusText.append("\n\n[INCOMING P2P BID: $$riderBid per mile]")
-            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC Floor...]")
+            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC FLOOR...]")
 
             ioScope.launch {
                 val vmResponse = TeeBridge.sendCommand("IGNITE_ZKVM:")
@@ -227,7 +220,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @RequiresApi(34)
     private fun igniteHypervisor() {
         Log.i("SHIFT_AVF", "Initiating pKVM Hypervisor Ignition...")
 
@@ -300,11 +292,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkAndRequestPermissions(): Boolean {
         val required = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.add(Manifest.permission.BLUETOOTH_SCAN)
-            required.add(Manifest.permission.BLUETOOTH_ADVERTISE)
-            required.add(Manifest.permission.BLUETOOTH_CONNECT)
-        }
+        required.add(Manifest.permission.BLUETOOTH_SCAN)
+        required.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+        required.add(Manifest.permission.BLUETOOTH_CONNECT)
+
         val missing = required.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), 1)
@@ -321,18 +312,20 @@ class MainActivity : AppCompatActivity() {
 
         val settings = AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY).build()
         val data = AdvertiseData.Builder().setIncludeDeviceName(false).build()
-        advertiser?.startAdvertising(settings, data, object : AdvertiseCallback() {})
-
-        val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-        scanner?.startScan(null, scanSettings, object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                result.device?.address?.let { nearbyNodes.add(it) }
-            }
-        })
-        isMeshActive = true
+        try {
+            advertiser?.startAdvertising(settings, data, object : AdvertiseCallback() {})
+            val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+            scanner?.startScan(null, scanSettings, object : ScanCallback() {
+                override fun onScanResult(callbackType: Int, result: ScanResult) {
+                    result.device?.address?.let { nearbyNodes.add(it) }
+                }
+            })
+            isMeshActive = true
+        } catch (e: SecurityException) {
+            statusText.append("\n❌ BLE Permission Error.")
+        }
     }
 
-    @RequiresApi(Build.VERSION_CODES.P)
     private fun triggerBiometricGate() {
         val biometricPrompt = BiometricPrompt.Builder(this)
             .setTitle("Sovereign Identity Verification")
