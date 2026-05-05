@@ -36,7 +36,7 @@ import java.security.KeyStore
 object TeeBridge {
     init { System.loadLibrary("shift_core") }
     external fun pingVault(command: String): String
-    
+
     // NEW: Phase 3 - The Mathematical Rejection Engine (zk-PSI)
     external fun verifyProximityProof(scannedMacs: String, expectedMacs: String): String
 
@@ -65,6 +65,11 @@ class MainActivity : AppCompatActivity() {
         polButton.text = "EXECUTE: PHASE 1.5 (Proximity Mesh + PoL)"
         layout.addView(polButton)
 
+        // NEW: Phase 1.6 - pKVM Hypervisor Ignition
+        val avfButton = Button(this)
+        avfButton.text = "EXECUTE: PHASE 1.6 (Ignite pKVM Hypervisor)"
+        layout.addView(avfButton)
+
         val lockButton = Button(this)
         lockButton.text = "EXECUTE: PHASE 2.4 (Fire Sub-50ms Lock)"
         layout.addView(lockButton)
@@ -73,32 +78,20 @@ class MainActivity : AppCompatActivity() {
         genesisButton.text = "EXECUTE: PHASE 3.1 (Mint Genesis Block)"
         layout.addView(genesisButton)
 
-        // (Place this near your other button declarations)
         val zkvmButton = Button(this)
         zkvmButton.text = "EXECUTE: PHASE 4.1 (Ignite On-Device zkVM)"
         layout.addView(zkvmButton)
 
-        // The Click Listener
-        zkvmButton.setOnClickListener {
-            statusText.append("\n\n[ALLOCATING MEMORY FOR NOVA IVC FOLDING...]")
-
-            // Hit the Rust Core
-            val vmResponse = TeeBridge.igniteZkVM()
-            statusText.append("\n$vmResponse")
-        }
-
-        // NEW: Phase 3 - Mathematical Rejection Engine Trigger
-        val zkPsiButton = Button(this)S
+        val zkPsiButton = Button(this)
         zkPsiButton.text = "EXECUTE: PHASE 3 (Test zk-PSI Rejection Engine)"
         layout.addView(zkPsiButton)
 
-        layout.addView(statusText)
-        setContentView(layout)
-
-        // (Place this under your zkPsiButton setup)
         val pricingButton = Button(this)
         pricingButton.text = "EXECUTE: PHASE 4.3 (Hybrid Market-Maker & zkVM)"
         layout.addView(pricingButton)
+
+        layout.addView(statusText)
+        setContentView(layout)
 
         // 1. BOOT SEQUENCE
         try {
@@ -113,7 +106,7 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "Boot Failed: ${e.message}"
         }
 
-        // 2. TRIGGER PHASE 1.5
+        // TRIGGER PHASE 1.5: Proximity Mesh
         polButton.setOnClickListener {
             if (checkAndRequestPermissions()) {
                 if (!isMeshActive) {
@@ -127,46 +120,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // NEW ACTION: Phase 4.3 - Hybrid Market-Maker
-        pricingButton.setOnClickListener {
-            if (!isMeshActive) {
-                statusText.append("\n\n--- ENGINE ERROR ---\nYou must activate the BLE Mesh (Phase 1.5) to gather the Supply/Demand ratio.")
-                return@setOnClickListener
-            }
-
-            statusText.append("\n\n[INITIATING HYBRID MARKET-MAKER...]")
-
-            // 1. System 1: The AI Surge (Simulating the Oracle)
-            // We use the actual number of devices your phone found to simulate local demand
-            val localDemand = nearbyNodes.size
-            val baseRatePerMile = 1.50
-
-            // Simple exponential surge logic based on local BLE density
-            val surgeMultiplier = if (localDemand > 5) 1.5 else if (localDemand > 10) 2.5 else 1.0
-            val aiSuggestedFare = baseRatePerMile * surgeMultiplier
-
-            statusText.append("\nLocal Nodes Detected: $localDemand")
-            statusText.append("\nAI Surge Multiplier: ${surgeMultiplier}x")
-            statusText.append("\nCalculated Base Fare: $$aiSuggestedFare per mile")
-
-            // 2. System 2: P2P Bidding & The Algorithmic Floor
-            // Simulate a Rider trying to lowball the Driver
-            val riderBid = 1.10
-            statusText.append("\n\n[INCOMING P2P BID: $$riderBid per mile]")
-
-            // 3. Ignite the zkVM to enforce the Smart Contract Rules
-            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC FLOOR...]")
-            val vmResponse = TeeBridge.igniteZkVM()
-            statusText.append("\n$vmResponse")
-
-            // Simulate the R1CS inequality constraint we wrote in Rust
-            if (riderBid >= baseRatePerMile) {
-                statusText.append("\n✅ [SMART CONTRACT] Bid Accepted: Fare exceeds minimum operating cost.")
+        // TRIGGER PHASE 1.6: Ignite pKVM Hypervisor
+        avfButton.setOnClickListener {
+            statusText.append("\n\n[REQUESTING TYPE-1 HYPERVISOR LEASE...]")
+            if (Build.VERSION.SDK_INT >= 34) { // Android 14+
+                igniteHypervisor()
             } else {
-                statusText.append("\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
+                statusText.append("\n❌ HARDWARE ERROR: Android 14+ required for AVF pKVM.")
             }
         }
-        
+
         // ACTION: Phase 2.4 - The Rider's Strike
         lockButton.setOnClickListener {
             if (isMeshActive) {
@@ -189,7 +152,7 @@ class MainActivity : AppCompatActivity() {
             statusText.append("\n$genesisResponse")
         }
 
-        // NEW ACTION: Phase 3 - Test the Mathematical Rejection Engine
+        // ACTION: Phase 3 - Test the Mathematical Rejection Engine
         zkPsiButton.setOnClickListener {
             if (!isMeshActive) {
                 statusText.append("\n\n--- ENGINE ERROR ---\nYou must activate the BLE Mesh (Phase 1.5) first to scan ambient MAC addresses.")
@@ -198,28 +161,119 @@ class MainActivity : AppCompatActivity() {
 
             statusText.append("\n\n[FIRING ZK-PSI MATHEMATICAL REJECTION ENGINE...]")
 
-            // 1. What the phone physically scanned (from the BLE Scanner)
             val scannedString = if (nearbyNodes.isNotEmpty()) {
                 nearbyNodes.joinToString(",")
             } else {
                 "00:11:22:33:44:55"
             }
 
-            // 2. Simulate what the DHT Network Expects in this H3 Hexagon
-            // We will dynamically pull a few real MACs from your environment to simulate
-            // a successful match, plus one fake one to simulate network reality.
             val expectedString = if (nearbyNodes.size >= 3) {
                 val realMacsToMatch = nearbyNodes.take(3).joinToString(",")
                 "$realMacsToMatch,FF:EE:DD:CC:BB:AA" // 3 real matches + 1 fake
             } else {
-                // Fallback if your Bluetooth doesn't see at least 3 devices
                 "00:11:22:33:44:55,AA:BB:CC:DD:EE:FF,11:22:33:44:55:66"
             }
 
-            // 3. Hit the Rust Core
             val psiResult = TeeBridge.verifyProximityProof(scannedString, expectedString)
-
             statusText.append("\n$psiResult")
+        }
+
+        // ACTION: Phase 4.1 - Ignite zkVM
+        zkvmButton.setOnClickListener {
+            statusText.append("\n\n[ALLOCATING MEMORY FOR NOVA IVC FOLDING...]")
+            val vmResponse = TeeBridge.igniteZkVM()
+            statusText.append("\n$vmResponse")
+        }
+
+        // ACTION: Phase 4.3 - Hybrid Market-Maker
+        pricingButton.setOnClickListener {
+            if (!isMeshActive) {
+                statusText.append("\n\n--- ENGINE ERROR ---\nYou must activate the BLE Mesh (Phase 1.5) to gather the Supply/Demand ratio.")
+                return@setOnClickListener
+            }
+
+            statusText.append("\n\n[INITIATING HYBRID MARKET-MAKER...]")
+
+            val localDemand = nearbyNodes.size
+            val baseRatePerMile = 1.50
+            val surgeMultiplier = if (localDemand > 5) 1.5 else if (localDemand > 10) 2.5 else 1.0
+            val aiSuggestedFare = baseRatePerMile * surgeMultiplier
+
+            statusText.append("\nLocal Nodes Detected: $localDemand")
+            statusText.append("\nAI Surge Multiplier: ${surgeMultiplier}x")
+            statusText.append("\nCalculated Base Fare: $$aiSuggestedFare per mile")
+
+            val riderBid = 1.10
+            statusText.append("\n\n[INCOMING P2P BID: $$riderBid per mile]")
+            statusText.append("\n[IGNITING ZK-VM TO VERIFY ALGORITHMIC FLOOR...]")
+
+            val vmResponse = TeeBridge.igniteZkVM()
+            statusText.append("\n$vmResponse")
+
+            if (riderBid >= baseRatePerMile) {
+                statusText.append("\n✅ [SMART CONTRACT] Bid Accepted: Fare exceeds minimum operating cost.")
+            } else {
+                statusText.append("\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
+            }
+        }
+    }
+
+    // =========================================================================
+    // PHASE 1.6: THE ANDROID VIRTUALIZATION FRAMEWORK (AVF) IGNITION
+    // =========================================================================
+    @RequiresApi(34)
+    private fun igniteHypervisor() {
+        Log.i("SHIFT_AVF", "Initiating pKVM Hypervisor Ignition...")
+
+        try {
+            // 1. Hook into the Android Virtualization Manager
+            val vmManager = VirtualMachineManager.getInstance(applicationContext)
+            if (vmManager == null) {
+                Log.e("SHIFT_AVF", "CRITICAL FAILURE: Device does not support AVF/pKVM.")
+                statusText.append("\n❌ CRITICAL: OS restricts pKVM access on this device.")
+                return
+            }
+
+            // 2. Configure the Microdroid Payload
+            // We tell the hypervisor to boot our compiled Rust .so binary as a raw payload
+            val builder = VirtualMachineConfig.Builder(applicationContext)
+                .setProtectedVm(true) // Enforce hardware-backed memory isolation
+                .setPayloadBinaryName("libshift_core.so")
+                .setMemoryBytes(256) // Allocate 256MB of RAM for the Arkworks ZK-Prover
+
+            val config = builder.build()
+
+            // 3. Provision and Boot the Virtual Machine
+            val vm = vmManager.getOrCreate("shift_vault_vm", config)
+
+            vm.setCallback(mainExecutor, object : VirtualMachineCallback {
+                override fun onPayloadStarted(vm: VirtualMachine) {
+                    Log.i("SHIFT_AVF", "💎 [HYPERVISOR] Microdroid VM Booted.")
+                    statusText.append("\n💎 [HYPERVISOR] Microdroid VM Booted. Hardware isolated.")
+                }
+
+                override fun onPayloadReady(vm: VirtualMachine) {
+                    Log.i("SHIFT_AVF", "⚙️ [HYPERVISOR] Rust Payload Executing...")
+                    statusText.append("\n⚙️ [HYPERVISOR] Rust Payload Running. Awaiting vsock bridge...")
+                }
+
+                override fun onStopped(vm: VirtualMachine, reason: Int) {
+                    Log.w("SHIFT_AVF", "⚠️ [HYPERVISOR] VM Stopped. Reason: $reason")
+                    statusText.append("\n⚠️ [HYPERVISOR] VM Terminated (Code: $reason).")
+                }
+
+                override fun onError(vm: VirtualMachine, errorCode: Int, message: String) {
+                    Log.e("SHIFT_AVF", "❌ [HYPERVISOR] Fatal Error: $message")
+                    statusText.append("\n❌ [HYPERVISOR] Crash: $message")
+                }
+            })
+
+            statusText.append("\n⏳ [HYPERVISOR] Spinning up Microdroid Core...")
+            vm.run()
+
+        } catch (e: Exception) {
+            Log.e("SHIFT_AVF", "Hypervisor ignition failed: ${e.message}")
+            statusText.append("\n❌ [HYPERVISOR] Ignition Exception: ${e.message}")
         }
     }
 
