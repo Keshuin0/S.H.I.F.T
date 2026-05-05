@@ -5,11 +5,9 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
-
-// FIX 1: Removed SockAddr completely.
 use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr};
 
 use std::sync::OnceLock;
@@ -141,27 +139,20 @@ fn main() {
 
     info!("🛡️ [HYPERVISOR] Rust Vault booting in isolated pKVM.");
     
-    // 1. Create a Virtual Socket (AF_VSOCK) -> returns OwnedFd
     let fd = socket(AddressFamily::Vsock, SockType::Stream, SockFlag::empty(), None)
         .expect("Failed to create vsock");
 
-    // 2. Bind to the designated port inside the VM 
     let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
     bind(fd.as_raw_fd(), &addr).expect("Failed to bind vsock port");
 
-    // 3. Listen for incoming connections from the Kotlin OS
-    // FIX 2: Added the borrow symbol '&' as requested by the compiler
-    listen(&fd.as_raw_fd(), 10).expect("Failed to listen on vsock");
+    listen(fd.as_raw_fd(), 10).expect("Failed to listen on vsock");
     info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
 
-    // 4. The Event Loop: Process commands from the Android App
     loop {
-        // FIX 3: Added the borrow symbol '&' to the accept call
-        match accept(&fd.as_raw_fd()) {
+        match accept(fd.as_raw_fd()) {
             Ok(client_raw_fd) => {
                 info!("🤝 [HYPERVISOR] Kotlin OS connection accepted.");
                 
-                // Directly use the returned RawFd (i32) to build the TCP Stream
                 let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
                 
                 let mut buffer = [0; 8192];
@@ -170,7 +161,6 @@ fn main() {
                         let command = String::from_utf8_lossy(&buffer[..bytes_read]).trim().to_string();
                         info!("⚙️ [HYPERVISOR] Command received: {}", command);
                         
-                        // Process the command exactly as the old JNI bridge did
                         let response = process_vault_command(&command);
                         
                         let _ = stream.write(response.as_bytes());
@@ -209,7 +199,6 @@ fn process_vault_command(command: &str) -> String {
 
                     let (_relay_transport, relay_client) = relay::client::new(local_peer_id);
 
-                    // FIX 4: Removed .with_tcp() entirely because we dropped the dependency
                     let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
                         .with_tokio()
                         .with_quic()
@@ -442,8 +431,6 @@ fn process_vault_command(command: &str) -> String {
             response = "Execution Denied: Node Identity not found.".to_string();
         }
     }
-    // Handle other commands (MINT_GENESIS, FIRE_LOCK, etc.)
-    
     else if command.starts_with("IGNITE_ZKVM:") {
         response = "🧠 [zkVM] Hybrid Market-Maker R1CS Circuits safely allocated inside Hypervisor memory.".to_string();
     }
