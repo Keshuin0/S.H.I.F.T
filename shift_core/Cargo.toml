@@ -3,12 +3,14 @@ name = "shift_core"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-name = "shift_core"
-crate-type = ["cdylib", "rlib"]
+# ⚡ PHASE 1.6 UPDATE: Removed [lib] cdylib. 
+# We are now building a standalone executable for the AVF Type-1 Hypervisor.
+[[bin]]
+name = "shift_vault"
+path = "src/main.rs"
 
 [dependencies]
-jni = "0.21.1"
+jni = "0.21.1" # Kept to prevent breaking old imports during the transition
 tokio = { version = "1.37.0", features = ["full"] }
 libp2p = { version = "0.53.2", features = ["tcp", "noise", "yamux", "quic", "gossipsub", "kad", "mdns", "identify", "ping", "autonat", "dcutr", "relay", "macros", "tokio"] }
 h3o = "0.9.4"
@@ -18,8 +20,11 @@ log = "0.4.21"
 sha2 = "0.10.8"
 hex = "0.4.3"
 ark-serialize = "^0.4.0"
+
+# ⚡ PHASE 1.6: Hypervisor VSOCK & OS Communication
 nix = "0.27.1"
 libc = "0.2"
+serde_json = "1.0"
 
 # NEW: Mobile-Safe zkVM Cryptography (Arkworks)
 ark-ff = "0.4.0"
