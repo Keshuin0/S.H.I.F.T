@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use libp2p::identity;
-use rand::{thread_rng, RngCore};
+use ark_std::rand::{thread_rng, RngCore};
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, error};
 
