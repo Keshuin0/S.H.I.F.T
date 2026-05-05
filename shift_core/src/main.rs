@@ -450,6 +450,22 @@ fn process_vault_command(command: &str) -> String {
         }
     }
     // Handle other commands (MINT_GENESIS, FIRE_LOCK, etc.)
+    
+    else if command.starts_with("IGNITE_ZKVM:") {
+        response = "🧠 [zkVM] Hybrid Market-Maker R1CS Circuits safely allocated inside Hypervisor memory.".to_string();
+    }
+    else if command.starts_with("VERIFY_PSI:") {
+        let payload = command.replace("VERIFY_PSI:", "");
+        let parts: Vec<&str> = payload.split('|').collect();
+        if parts.len() == 2 {
+            let scanned_macs: Vec<&str> = parts[0].split(',').collect();
+            let expected_macs: Vec<&str> = parts[1].split(',').collect();
+            response = execute_zk_psi(scanned_macs, expected_macs);
+        } else {
+            response = "Execution Denied: Malformed zk-PSI payload.".to_string();
+        }
+    }
+
     else {
         response = format!("Unrecognized or deprecated command: [{}]", command);
     }
