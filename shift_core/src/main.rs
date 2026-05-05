@@ -5,10 +5,12 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
-use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr, SockAddr};
+
+// FIX 1: Removed 'SockAddr'. VsockAddr is used directly in Nix 0.27.1.
+use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr};
 
 use std::sync::OnceLock;
 use std::collections::hash_map::DefaultHasher; 
@@ -141,25 +143,28 @@ fn main() {
 
     info!("🛡️ [HYPERVISOR] Rust Vault booting in isolated pKVM.");
     
-    // 1. Create a Virtual Socket (AF_VSOCK)
+    // 1. Create a Virtual Socket (AF_VSOCK) -> returns OwnedFd
     let fd = socket(AddressFamily::Vsock, SockType::Stream, SockFlag::empty(), None)
         .expect("Failed to create vsock");
 
-    // 2. Bind to the designated port inside the VM
+    // 2. Bind to the designated port inside the VM 
+    // FIX 2: bind() requires RawFd (i32) and a direct reference to VsockAddr
     let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
-    bind(fd.as_raw_fd(), &SockAddr::Vsock(addr)).expect("Failed to bind vsock port");
+    bind(fd.as_raw_fd(), &addr).expect("Failed to bind vsock port");
 
     // 3. Listen for incoming connections from the Kotlin OS
-    listen(fd.as_raw_fd(), 10).expect("Failed to listen on vsock");
+    // FIX 3: listen() requires a reference (&fd)
+    listen(&fd, 10).expect("Failed to listen on vsock");
     info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
 
     // 4. The Event Loop: Process commands from the Android App
     loop {
+        // FIX 4: accept() requires a RawFd and returns a RawFd (i32)
         match accept(fd.as_raw_fd()) {
-            Ok(client_fd_owned) => {
+            Ok(client_raw_fd) => {
                 info!("🤝 [HYPERVISOR] Kotlin OS connection accepted.");
-                // Convert OwnedFd to RawFd safely for the TCP Stream
-                let client_raw_fd = client_fd_owned.into_raw_fd();
+                
+                // Directly use the returned RawFd (i32) to build the TCP Stream
                 let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
                 
                 let mut buffer = [0; 8192];
