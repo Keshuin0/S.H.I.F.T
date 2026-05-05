@@ -5,10 +5,10 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
-use std::os::unix::io::{FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
-use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, SockaddrVsock};
+use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr, SockAddr};
 
 use std::sync::OnceLock;
 use std::collections::hash_map::DefaultHasher; 
@@ -146,22 +146,21 @@ fn main() {
         .expect("Failed to create vsock");
 
     // 2. Bind to the designated port inside the VM
-    let addr = SockaddrVsock::new(VMADDR_CID_ANY, VSOCK_PORT);
-    bind(&fd, &addr).expect("Failed to bind vsock port");
+    let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
+    bind(fd.as_raw_fd(), &SockAddr::Vsock(addr)).expect("Failed to bind vsock port");
 
     // 3. Listen for incoming connections from the Kotlin OS
-    listen(&fd, 10).expect("Failed to listen on vsock");
+    listen(fd.as_raw_fd(), 10).expect("Failed to listen on vsock");
     info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
 
     // 4. The Event Loop: Process commands from the Android App
     loop {
-        match accept(&fd) {
-            Ok(client_fd) => {
+        match accept(fd.as_raw_fd()) {
+            Ok(client_fd_owned) => {
                 info!("🤝 [HYPERVISOR] Kotlin OS connection accepted.");
-                
-                // client_fd is an OwnedFd in nix 0.27+, convert to raw fd for TcpStream
-                let raw_fd = client_fd.into_raw_fd();
-                let mut stream = unsafe { std::net::TcpStream::from_raw_fd(raw_fd) };
+                // Convert OwnedFd to RawFd safely for the TCP Stream
+                let client_raw_fd = client_fd_owned.into_raw_fd();
+                let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
                 
                 let mut buffer = [0; 8192];
                 if let Ok(bytes_read) = stream.read(&mut buffer) {
