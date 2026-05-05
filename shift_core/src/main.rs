@@ -5,11 +5,10 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
-use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::os::unix::io::{FromRawFd, IntoRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
-use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr};
-use nix::sys::socket::SockAddr;
+use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, SockaddrVsock};
 
 use std::sync::OnceLock;
 use std::collections::hash_map::DefaultHasher; 
@@ -17,7 +16,6 @@ use std::hash::{Hash, Hasher};
 use tokio::runtime::Runtime; 
 use tokio::sync::mpsc; 
 use tokio::time::Duration;
-use std::net::ToSocketAddrs; 
 use std::fmt::Write as FmtWrite; 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -27,7 +25,7 @@ use sha2::{Sha256, Digest};
 use std::collections::HashSet;
 
 use log::{info, error};
-use android_logger::{Config, FilterBuilder};
+use android_logger::Config;
 use log::LevelFilter;
 
 use arrayvec::{ArrayVec, ArrayString};
@@ -35,7 +33,7 @@ use arrayvec::{ArrayVec, ArrayString};
 use libp2p::{
     gossipsub, identity, kad, mdns, identify, ping, autonat, dcutr, relay,
     swarm::NetworkBehaviour, PeerId, SwarmBuilder,
-    futures::StreamExt, Multiaddr
+    futures::StreamExt
 };
 use h3o::{LatLng, Resolution, CellIndex};
 
@@ -148,19 +146,22 @@ fn main() {
         .expect("Failed to create vsock");
 
     // 2. Bind to the designated port inside the VM
-    let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
-    bind(fd.as_raw_fd(), &SockAddr::Vsock(addr)).expect("Failed to bind vsock port");
+    let addr = SockaddrVsock::new(VMADDR_CID_ANY, VSOCK_PORT);
+    bind(&fd, &addr).expect("Failed to bind vsock port");
 
     // 3. Listen for incoming connections from the Kotlin OS
-    listen(fd.as_raw_fd(), 10).expect("Failed to listen on vsock");
+    listen(&fd, 10).expect("Failed to listen on vsock");
     info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
 
     // 4. The Event Loop: Process commands from the Android App
     loop {
-        match accept(fd.as_raw_fd()) {
+        match accept(&fd) {
             Ok(client_fd) => {
                 info!("🤝 [HYPERVISOR] Kotlin OS connection accepted.");
-                let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_fd) };
+                
+                // client_fd is an OwnedFd in nix 0.27+, convert to raw fd for TcpStream
+                let raw_fd = client_fd.into_raw_fd();
+                let mut stream = unsafe { std::net::TcpStream::from_raw_fd(raw_fd) };
                 
                 let mut buffer = [0; 8192];
                 if let Ok(bytes_read) = stream.read(&mut buffer) {
