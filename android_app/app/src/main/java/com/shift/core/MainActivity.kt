@@ -23,10 +23,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
-import android.system.virtualmachine.VirtualMachine
-import android.system.virtualmachine.VirtualMachineConfig
-import android.system.virtualmachine.VirtualMachineManager
-import android.system.virtualmachine.VirtualMachineCallback
+import androidx.virtualmachine.VirtualMachine
+import androidx.virtualmachine.VirtualMachineConfig
+import androidx.virtualmachine.VirtualMachineManager
+import androidx.virtualmachine.VirtualMachineCallback
 import android.util.Log
 import java.security.KeyPairGenerator
 import java.security.KeyStore
