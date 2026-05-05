@@ -5,7 +5,7 @@ plugins {
 android {
     namespace = "com.shift.core"
     compileSdk {
-        version = release(35) {
+        version = release(36) {
             minorApiLevel = 1
         }
     }
