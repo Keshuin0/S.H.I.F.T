@@ -20,7 +20,7 @@ android {
         applicationId = "com.shift.core"
         // ⚡ AVF requires a minimum of Android 14 (API 34)
         minSdk = 35
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
