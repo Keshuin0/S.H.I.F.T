@@ -238,17 +238,15 @@ fn process_vault_command(command: &str) -> String {
 
                             let store = kad::store::MemoryStore::new(local_peer_id);
                             let kademlia = kad::Behaviour::new(local_peer_id, store);
-                            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).expect("Valid mdns");
                             
                             let identify = identify::Behaviour::new(identify::Config::new(
                                 "/shift/1.0.0".to_string(),
                                 key.public(),
                             ));
                             let ping = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(15)));
-                            let autonat = autonat::Behaviour::new(local_peer_id, autonat::Config::default());
                             let dcutr = dcutr::Behaviour::new(local_peer_id);
 
-                            Ok(NodeBehaviour { gossipsub, kademlia, mdns, identify, ping, autonat, dcutr, relay_client })
+                            Ok(NodeBehaviour { gossipsub, kademlia, identify, ping, dcutr, relay_client })
                         })
                         .expect("Valid behaviour builder")
                         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
