@@ -5,8 +5,8 @@ plugins {
 android {
     namespace = "com.shift.core"
 
-    // Use the system_current SDK to access hidden AVF APIs
-    compileSdkPreview = "VanillaIceCream"
+    // ⚡ UNLOCKING AVF API (Android 15)
+    compileSdk = 35
 
     sourceSets {
         getByName("main") {
