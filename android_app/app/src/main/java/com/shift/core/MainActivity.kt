@@ -23,26 +23,27 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import java.io.InputStream
+import java.io.OutputStream
+import java.lang.reflect.Method
+import java.lang.reflect.Proxy
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import kotlinx.coroutines.*
-import java.lang.reflect.Proxy
 
 // =========================================================================
 // PHASE 1.6: THE DYNAMIC VSOCK HYPERVISOR BRIDGE
 // =========================================================================
-// By using Reflection, we bypass the Kotlin compiler's static analysis
-// and directly hook into the OS's hidden AVF hardware layer at runtime.
 object TeeBridge {
     var activeVm: Any? = null
     const val VSOCK_PORT: Long = 8000
 
+    @SuppressLint("DiscouragedPrivateApi")
     fun sendCommand(command: String): String {
         val vm = activeVm ?: return "❌ Execution Denied: Hypervisor is offline. Ignite pKVM first."
 
         return try {
-            // Find the VSOCK connection method dynamically
-            var vsockMethod: java.lang.reflect.Method? = null
+            var vsockMethod: Method? = null
             for (m in vm.javaClass.methods) {
                 if (m.name.contains("connectVsock", ignoreCase = true) ||
                     m.name.contains("connectToVsockServer", ignoreCase = true)) {
@@ -53,25 +54,23 @@ object TeeBridge {
 
             if (vsockMethod == null) return "❌ VSOCK binding not found on this hardware."
 
-            // Invoke it (usually takes a Long port number)
             val socket = try {
                 vsockMethod.invoke(vm, VSOCK_PORT)
             } catch (e: Exception) {
-                vsockMethod.invoke(vm, VSOCK_PORT.toInt()) // Fallback to Int if needed
+                Log.w("SHIFT_AVF", "Long port failed, trying Int. (${e.message})")
+                vsockMethod.invoke(vm, VSOCK_PORT.toInt())
             } ?: return "❌ Failed to establish VSOCK stream."
 
             val getInputStreamMethod = socket.javaClass.getMethod("getInputStream")
             val getOutputStreamMethod = socket.javaClass.getMethod("getOutputStream")
             val closeMethod = socket.javaClass.getMethod("close")
 
-            val inputStream = getInputStreamMethod.invoke(socket) as java.io.InputStream
-            val outputStream = getOutputStreamMethod.invoke(socket) as java.io.OutputStream
+            val inputStream = getInputStreamMethod.invoke(socket) as InputStream
+            val outputStream = getOutputStreamMethod.invoke(socket) as OutputStream
 
-            // Stream the command into the secure enclave
             outputStream.write(command.toByteArray())
             outputStream.flush()
 
-            // Read the Rust Vault's response safely
             val response = inputStream.bufferedReader().use { it.readText() }
             closeMethod.invoke(socket)
 
@@ -82,45 +81,41 @@ object TeeBridge {
     }
 }
 
-@SuppressLint("MissingPermission", "SetTextI18n")
+@SuppressLint("MissingPermission", "SetTextI18n", "DiscouragedPrivateApi", "PrivateApi")
 class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private val nearbyNodes = mutableSetOf<String>()
     private var isMeshActive = false
-
     private val ioScope = CoroutineScope(Dispatchers.IO)
+
+    // Constant for our hardware key
+    private val keyAlias = "SHIFT_SOVEREIGN_NODE_ID"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val layout = LinearLayout(this)
-        layout.orientation = LinearLayout.VERTICAL
-        layout.setPadding(50, 50, 50, 50)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 50, 50, 50)
+        }
 
-        statusText = TextView(this)
-        statusText.textSize = 14f
+        statusText = TextView(this).apply { textSize = 14f }
 
         val avfButton = Button(this).apply { text = "EXECUTE: PHASE 1.6 (Ignite pKVM Hypervisor)" }
-        layout.addView(avfButton)
-
         val polButton = Button(this).apply { text = "EXECUTE: PHASE 1.5 (Proximity Mesh + PoL)" }
-        layout.addView(polButton)
-
         val lockButton = Button(this).apply { text = "EXECUTE: PHASE 2.4 (Fire Sub-50ms Lock)" }
-        layout.addView(lockButton)
-
         val genesisButton = Button(this).apply { text = "EXECUTE: PHASE 3.1 (Mint Genesis Block)" }
-        layout.addView(genesisButton)
-
         val zkvmButton = Button(this).apply { text = "EXECUTE: PHASE 4.1 (Ignite On-Device zkVM)" }
-        layout.addView(zkvmButton)
-
         val zkPsiButton = Button(this).apply { text = "EXECUTE: PHASE 3 (Test zk-PSI Rejection Engine)" }
-        layout.addView(zkPsiButton)
-
         val pricingButton = Button(this).apply { text = "EXECUTE: PHASE 4.3 (Hybrid Market-Maker & zkVM)" }
-        layout.addView(pricingButton)
 
+        layout.addView(avfButton)
+        layout.addView(polButton)
+        layout.addView(lockButton)
+        layout.addView(genesisButton)
+        layout.addView(zkvmButton)
+        layout.addView(zkPsiButton)
+        layout.addView(pricingButton)
         layout.addView(statusText)
         setContentView(layout)
 
@@ -225,7 +220,6 @@ class MainActivity : AppCompatActivity() {
         Log.i("SHIFT_AVF", "Initiating pKVM Hypervisor Ignition via Reflection Bypass...")
 
         try {
-            // 1. Get VirtualMachineManager class
             val vmmClass = Class.forName("android.system.virtualmachine.VirtualMachineManager")
             val getInstanceMethod = vmmClass.getMethod("getInstance", Context::class.java)
             val vmManager = getInstanceMethod.invoke(null, applicationContext)
@@ -235,7 +229,6 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
-            // 2. Build Config
             val builderClass = Class.forName("android.system.virtualmachine.VirtualMachineConfig\$Builder")
             val builder = builderClass.getConstructor(Context::class.java).newInstance(applicationContext)
 
@@ -243,23 +236,21 @@ class MainActivity : AppCompatActivity() {
             builderClass.getMethod("setPayloadBinaryName", String::class.java).invoke(builder, "libshift_core.so")
 
             try {
-                // Try setMemoryBytes (Android 15+)
                 builderClass.getMethod("setMemoryBytes", Long::class.javaPrimitiveType).invoke(builder, 256L * 1024 * 1024)
             } catch (e: Exception) {
-                // Try setMemoryMib (Android 14)
+                Log.d("SHIFT_AVF", "setMemoryBytes failed, falling back to setMemoryMib: ${e.message}")
                 try {
                     builderClass.getMethod("setMemoryMib", Int::class.javaPrimitiveType).invoke(builder, 256)
-                } catch(e2: Exception) {}
+                } catch(e2: Exception) {
+                    Log.d("SHIFT_AVF", "setMemoryMib also failed: ${e2.message}")
+                }
             }
 
             val config = builderClass.getMethod("build").invoke(builder)
-
-            // 3. Get or Create VM
             val configClass = Class.forName("android.system.virtualmachine.VirtualMachineConfig")
             val getOrCreateMethod = vmmClass.getMethod("getOrCreate", String::class.java, configClass)
             val vm = getOrCreateMethod.invoke(vmManager, "shift_vault_vm", config)
 
-            // 4. Create Callback Proxy
             val callbackClass = Class.forName("android.system.virtualmachine.VirtualMachineCallback")
             val proxy = Proxy.newProxyInstance(classLoader, arrayOf(callbackClass)) { _, method, args ->
                 when (method.name) {
@@ -286,7 +277,6 @@ class MainActivity : AppCompatActivity() {
                 null
             }
 
-            // 5. Set Callback and Run
             val vmClass = Class.forName("android.system.virtualmachine.VirtualMachine")
             vmClass.getMethod("setCallback", java.util.concurrent.Executor::class.java, callbackClass).invoke(vm, mainExecutor, proxy)
 
@@ -302,9 +292,8 @@ class MainActivity : AppCompatActivity() {
     private fun executeSecureBootSequence() {
         ioScope.launch {
             try {
-                val publicKeyHex = generateTrustZoneKey("SHIFT_SOVEREIGN_NODE_ID")
+                val publicKeyHex = generateTrustZoneKey()
                 val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$publicKeyHex")
-
                 val sbtToken = "SBT-CLEAR-ID-9942"
                 val rustSbtResponse = TeeBridge.sendCommand("ISSUE_SBT:$sbtToken")
 
@@ -320,10 +309,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkAndRequestPermissions(): Boolean {
-        val required = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION,
+        val required = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.BLUETOOTH_ADVERTISE,
-            Manifest.permission.BLUETOOTH_CONNECT)
+            Manifest.permission.BLUETOOTH_CONNECT
+        )
 
         val missing = required.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) {
@@ -351,7 +342,7 @@ class MainActivity : AppCompatActivity() {
             })
             isMeshActive = true
         } catch (e: SecurityException) {
-            statusText.append("\n❌ BLE Permission Error.")
+            statusText.append("\n❌ BLE Permission Error: ${e.message}")
         }
     }
 
@@ -381,7 +372,10 @@ class MainActivity : AppCompatActivity() {
         val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val location: Location? = try {
             locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-        } catch (e: SecurityException) { null }
+        } catch (e: SecurityException) {
+            Log.w("SHIFT_AVF", "Location permission missing", e)
+            null
+        }
 
         val meshConsensus = if (nearbyNodes.isNotEmpty()) { "BLE:${nearbyNodes.joinToString(",")}" } else { "BLE:ISOLATED" }
         val telemetry = if (location != null) {
@@ -396,13 +390,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun generateTrustZoneKey(alias: String): String {
+    private fun generateTrustZoneKey(): String {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
 
-        if (!keyStore.containsAlias(alias)) {
+        if (!keyStore.containsAlias(keyAlias)) {
             val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
-            val parameterSpec = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+            val parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 .setIsStrongBoxBacked(true)
                 .setUserAuthenticationRequired(true)
@@ -411,6 +405,8 @@ class MainActivity : AppCompatActivity() {
             keyPairGenerator.generateKeyPair()
         }
 
-        return keyStore.getCertificate(alias).publicKey.encoded.joinToString("") { "%02x".format(it) }
+        return keyStore.getCertificate(keyAlias).publicKey.encoded.joinToString("") {
+            it.toString(16).padStart(2, '0')
+        }
     }
 }
