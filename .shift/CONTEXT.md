@@ -56,6 +56,13 @@
 - `D:\Project\Project S.H.I.F.T\.shift\audit_report.md` (full audit findings)
 - `D:\Project\Project S.H.I.F.T\ISSUES_TRACKER.md` (issue inventory)
 
+### Session 2 (2026-05-28, Current)
+**What was done:**
+1. **Implemented 3 missing VSOCK handlers** (`ISSUE_SBT`, `MINT_GENESIS`, `FIRE_LOCK`) in `main.rs`.
+2. **Auto-init boot sequence** added to `MainActivity.kt` so the node fully initializes autonomously on boot.
+3. **SBT KYC enforcement** added to `GENERATE_POL` (fixing #112).
+4. **Resolved Issue #97 (A1)**.
+
 ---
 
 ## Current State
@@ -86,7 +93,7 @@
 
 ### Next Work
 Start M0: Audit Fixes. Recommended order:
-1. A1 (#97) — Add MINT_GENESIS, FIRE_LOCK, ISSUE_SBT handlers to main.rs
+1. ~~A1 (#97) — Add MINT_GENESIS, FIRE_LOCK, ISSUE_SBT handlers to main.rs~~ (Completed Session 2)
 2. A4 (#100) — Persist libp2p identity to TEE storage
 3. A5 (#109) — Cache Groth16 proving/verification keys
 4. A11 (#111) — Add VSOCK challenge-response authentication
@@ -101,7 +108,7 @@ Start M0: Audit Fixes. Recommended order:
 | What | File | Lines | Status |
 |------|------|-------|--------|
 | VSOCK listener | main.rs | 129-185 | Working but unauthenticated |
-| Command handler | main.rs | 445-467 | Missing MINT_GENESIS, FIRE_LOCK, ISSUE_SBT |
+| Command handler | main.rs | 445-560 | Missing commands implemented |
 | Identity generation | main.rs | 200-210 | Ephemeral (regenerates per boot) |
 | PoL generation | main.rs | 390-435 | Uses SipHash (not crypto), setup per-call |
 | ZK circuit | zk_engine.rs | 65-101 | Missing inequality constraint |
@@ -131,4 +138,4 @@ A7 (bootstrap) → #34 (Radio Mesh)
 
 ---
 
-*Last updated: 2026-05-28 Session 1*
+*Last updated: 2026-05-28 Session 2*
