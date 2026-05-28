@@ -1,0 +1,68 @@
+name: "\U0001F680 Feature / Task"
+description: Propose a new feature, task, or improvement
+title: "[Feature] "
+labels: ["type: feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature / Task Request
+        Describe the feature or task you want to implement.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What needs to be built or changed?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: How do we know this is done?
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Notes
+      description: Technical details, architecture decisions, code snippets.
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase
+      options:
+        - "Phase 1: Hardware Abstraction & Identity"
+        - "Phase 2: Mesh Networking & Spatial Indexing"
+        - "Phase 3: Block-Lattice & Ledger"
+        - "Phase 4: Execution, Economics & AI"
+        - "Phase 5: Real-World Safety & UX"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - tee-vault (Rust TEE / pKVM / SELinux)
+        - zk-engine (Arkworks ZK circuits)
+        - p2p-mesh (libp2p, GossipSub, DHT)
+        - block-lattice (Ledger, StateBlock)
+        - android-app (Kotlin UI, BLE, sensors)
+        - pricing-engine (Surge, AI oracle)
+        - identity (Keys, SBT, biometrics)
+        - devops (CI/CD, GitHub Actions)
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List any issues this blocks or is blocked by.
+      placeholder: |
+        - Blocked by #XX
+        - Blocks #YY
+        - Related to #ZZ
