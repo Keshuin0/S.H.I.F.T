@@ -93,3 +93,16 @@ cargo ndk -t arm64-v8a --platform 28 -o ../android_app/app/src/main/jniLibs buil
 
 
 For Anroid studio terminal D:\Softwares\Installed\Android_Studio_SDK\platform-tools\adb shell pm grant com.shift.core android.permission.USE_CUSTOM_VIRTUAL_MACHINE 
+
+Google Antigravity:
+Every new session, just say this:
+
+Read .shift/CONTEXT.md and then let's continue working.
+
+That's it. One sentence. I'll read the file, know the entire project history, architecture, what's been done, what's next, your preferences — everything.
+
+At the end of every session, just tell me:
+
+Update the CONTEXT.md
+
+And I'll add whatever we did to the Session History section and update the Current State.
