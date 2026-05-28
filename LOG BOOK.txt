@@ -93,3 +93,34 @@ cargo ndk -t arm64-v8a --platform 28 -o ../android_app/app/src/main/jniLibs buil
 
 
 For Anroid studio terminal D:\Softwares\Installed\Android_Studio_SDK\platform-tools\adb shell pm grant com.shift.core android.permission.USE_CUSTOM_VIRTUAL_MACHINE 
+
+Google Antigravity:
+Every new session, just say this:
+
+Read .shift/CONTEXT.md and then let's continue working.
+
+That's it. One sentence. I'll read the file, know the entire project history, architecture, what's been done, what's next, your preferences — everything.
+
+At the end of every session, just tell me:
+
+Update the CONTEXT.md
+
+And I'll add whatever we did to the Session History section and update the Current State.
+
+===========================================================================
+[ SESSION 2: MAY 28, 2026 - VSOCK COMMAND HANDLERS (Issue #97 / A1) ]
+===========================================================================
+STATUS UPDATE:
+- Implemented 3 missing VSOCK command handlers in Rust Vault (main.rs):
+  1. ISSUE_SBT: — Stores Soulbound Token in OnceLock, SHA-256 hashes for audit trail
+  2. MINT_GENESIS: — Creates genesis StateBlock in LOCAL_LEDGER, broadcasts via GossipSub
+  3. FIRE_LOCK: — Increments Lamport clock, publishes LOCK_REQUEST to target zone
+- Added SBT enforcement to GENERATE_POL (closes Issue #112 / A12)
+- Added MINT_GENESIS to Kotlin auto-init boot sequence (executeSecureBootSequence)
+- Boot flow is now fully automatic: REGISTER_NODE → ISSUE_SBT → MINT_GENESIS
+
+⚠️ DESIGN DECISION: GENESIS BALANCE PLACEHOLDER
+- Genesis block uses 1,000,000 μSHIFT (micro-units) as a POC placeholder
+- This has NO economic significance — it is a non-zero seed for testing send/receive blocks
+- Production tokenomics (supply, distribution, denomination) tracked in a separate GitHub issue
+- Code location: main.rs, MINT_GENESIS handler, marked with TODO comment

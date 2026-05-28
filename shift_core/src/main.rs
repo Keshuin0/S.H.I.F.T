@@ -367,7 +367,11 @@ fn process_vault_command(command: &str) -> String {
         let node_id = NODE_IDENTITY.get();
 
         if let Some(identity) = node_id {
-            
+            // Phase 1.4: Enforce KYC clearance before PoL generation (Issue #112 / A12)
+            if SOULBOUND_TOKEN.get().is_none() {
+                return "Execution Denied: No Soulbound Token. KYC clearance required.".to_string();
+            }
+
             let mut extracted_lat = 0.0;
             let mut extracted_lon = 0.0;
             let mut extracted_ble = String::new();
@@ -443,8 +447,114 @@ fn process_vault_command(command: &str) -> String {
             response = "Execution Denied: Node Identity not found.".to_string();
         }
     }
-    // Handle other commands (MINT_GENESIS, FIRE_LOCK, etc.)
-    
+    // =========================================================================
+    // PHASE 1.4: SOULBOUND TOKEN ISSUANCE (Issue #97 / A1)
+    // =========================================================================
+    else if command.starts_with("ISSUE_SBT:") {
+        let sbt_token = command.replace("ISSUE_SBT:", "").trim().to_string();
+        if sbt_token.is_empty() {
+            response = "Execution Denied: Empty SBT token.".to_string();
+        } else {
+            match SOULBOUND_TOKEN.set(sbt_token.clone()) {
+                Ok(_) => {
+                    let mut hasher = Sha256::new();
+                    hasher.update(sbt_token.as_bytes());
+                    let sbt_hash = hex::encode(hasher.finalize());
+                    info!("\u{1f6e1}\u{fe0f} [IDENTITY] Soulbound Token attested: {}", &sbt_hash[..16]);
+                    response = format!("\u{1f6e1}\u{fe0f} Soulbound Token Locked. KYC Hash: {}.", &sbt_hash[..16]);
+                },
+                Err(_) => {
+                    response = "Identity already attested. Soulbound Token is immutable.".to_string();
+                }
+            }
+        }
+    }
+    // =========================================================================
+    // PHASE 3.1: BLOCK-LATTICE GENESIS (Issue #97 / A1)
+    // =========================================================================
+    else if command.starts_with("MINT_GENESIS:") {
+        let node_id = NODE_IDENTITY.get();
+        if let Some(identity) = node_id {
+            if let Some(ledger_mutex) = LOCAL_LEDGER.get() {
+                let mut ledger = ledger_mutex.lock().unwrap();
+                if ledger.contains_key(identity) {
+                    response = "Block-Lattice Stable: Genesis already anchored.".to_string();
+                } else {
+                    // TODO: Placeholder genesis balance (1M \u03bcSHIFT) \u2014 see GitHub issue for production tokenomics
+                    let genesis_balance: u64 = 1_000_000;
+
+                    let mut hasher = Sha256::new();
+                    hasher.update(identity.as_bytes());
+                    hasher.update(b"0000000000000000");
+                    hasher.update(b"GENESIS");
+                    hasher.update(genesis_balance.to_be_bytes());
+                    let block_hash = hex::encode(hasher.finalize());
+
+                    let genesis_block = StateBlock {
+                        account: identity.clone(),
+                        previous_hash: "0000000000000000".to_string(),
+                        representative: identity.clone(),
+                        balance: genesis_balance,
+                        link: "GENESIS".to_string(),
+                        signature: block_hash.clone(),
+                    };
+
+                    ledger.insert(identity.clone(), genesis_block);
+                    info!("\u{26d3}\u{fe0f} [BLOCK-LATTICE] Genesis block minted. Hash: {}", &block_hash[..16]);
+
+                    // Broadcast genesis to the network via shift-ledger topic
+                    if let Some(tx) = MESH_TX.get() {
+                        let payload = format!("GENESIS:{}:{}", identity, block_hash);
+                        let _ = tx.try_send(EngineCommand::BroadcastLedger { payload });
+                    }
+
+                    response = format!("\u{26d3}\u{fe0f} Genesis Block Anchored. Hash: {}. Balance: {} \u{03bc}SHIFT.", &block_hash[..16], genesis_balance);
+                }
+            } else {
+                response = "Execution Denied: Ledger not initialized. Register node first.".to_string();
+            }
+        } else {
+            response = "Execution Denied: Node Identity not found.".to_string();
+        }
+    }
+    // =========================================================================
+    // PHASE 2.4: OCC RIDE LOCK (Issue #97 / A1)
+    // =========================================================================
+    else if command.starts_with("FIRE_LOCK:") {
+        let target_zone = command.replace("FIRE_LOCK:", "").trim().to_string();
+        if target_zone.is_empty() {
+            response = "Execution Denied: No target zone specified.".to_string();
+        } else {
+            let ticket = LAMPORT_CLOCK.fetch_add(1, Ordering::SeqCst) + 1;
+
+            // Record the lock locally
+            if let Some(locks_mutex) = ACTIVE_RIDE_LOCKS.get() {
+                let mut active_locks = locks_mutex.lock().unwrap();
+                let node_id_str = NODE_IDENTITY.get().cloned().unwrap_or_default();
+                active_locks.insert(node_id_str, ticket);
+            }
+
+            // Broadcast LOCK_REQUEST to the target zone via GossipSub
+            if let Some(tx) = MESH_TX.get() {
+                let lock_payload = format!("LOCK_REQUEST:{}", ticket);
+                let mut zone_str = ArrayString::<32>::new();
+                let _ = write!(&mut zone_str, "{}", &target_zone[..target_zone.len().min(31)]);
+                let mut k_rings = ArrayVec::<ArrayString<32>, 7>::new();
+                k_rings.push(zone_str.clone());
+
+                let _ = tx.try_send(EngineCommand::TransmitPoL {
+                    global_topic: target_zone.clone(),
+                    local_zone: zone_str,
+                    payload: lock_payload,
+                    k_rings,
+                });
+                info!("\u{1f512} [OCC] Lock Request fired. Ticket #{} \u{2192} Zone: {}", ticket, target_zone);
+                response = format!("\u{1f512} Lamport Lock Fired. Ticket #{} dispatched to {}.", ticket, target_zone);
+            } else {
+                response = "Execution Denied: P2P mesh not initialized. Register node first.".to_string();
+            }
+        }
+    }
     else if command.starts_with("IGNITE_ZKVM:") {
         response = "🧠 [zkVM] Hybrid Market-Maker R1CS Circuits safely allocated inside Hypervisor memory.".to_string();
     }

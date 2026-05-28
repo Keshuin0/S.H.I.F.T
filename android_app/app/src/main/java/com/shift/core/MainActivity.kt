@@ -302,9 +302,10 @@ class MainActivity : AppCompatActivity() {
                 val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$publicKeyHex")
                 val sbtToken = "SBT-CLEAR-ID-9942"
                 val rustSbtResponse = TeeBridge.sendCommand("ISSUE_SBT:$sbtToken")
+                val genesisResponse = TeeBridge.sendCommand("MINT_GENESIS:")
 
                 withContext(Dispatchers.Main) {
-                    statusText.append("\n\nSYSTEM BOOT:\n$rustIdentityResponse\n$rustSbtResponse\n\nReady for Telemetry.")
+                    statusText.append("\n\nSYSTEM BOOT:\n$rustIdentityResponse\n$rustSbtResponse\n$genesisResponse\n\nReady for Telemetry.")
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
