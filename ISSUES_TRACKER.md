@@ -1,7 +1,8 @@
 # S.H.I.F.T. — Issues Tracker & Gap Analysis
 
-**Generated:** 2026-05-28 | **Source:** https://github.com/Keshuin0/S.H.I.F.T/issues
-**Total GitHub Items:** 96 (Issues + PRs) | **Open Issues:** 55 | **Closed Issues:** 20 | **PRs:** 8
+**Generated:** 2026-05-28 | **Updated:** 2026-05-28 | **Source:** https://github.com/Keshuin0/S.H.I.F.T/issues
+**Total GitHub Items:** 116 (Issues + PRs) | **Open Issues:** 75 | **Closed Issues:** 20 | **PRs:** 8
+**Audit Issues Filed:** ✅ All 20 (A1-A20) — [View on GitHub](https://github.com/Keshuin0/S.H.I.F.T/issues?q=label%3Aaudit)
 
 ---
 
@@ -130,11 +131,11 @@
 
 ---
 
-## 2. Audit-Discovered Issues NOT on GitHub
+## 2. Audit-Discovered Issues — ✅ All Filed on GitHub
 
-These are **critical bugs and gaps** found during the codebase deep-dive that have **NO corresponding GitHub issue**:
+These are **critical bugs and gaps** found during the codebase deep-dive. All 20 have been filed as GitHub issues:
 
-### 🔴 CRITICAL — Not Tracked Anywhere
+### 🔴 CRITICAL — Filed as GitHub Issues
 
 | ID | Severity | Title | File | Lines | Description |
 |----|----------|-------|------|-------|-------------|
@@ -144,7 +145,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive that ha
 | A4 | 🔴 CRITICAL | **Ephemeral libp2p Identity** | `main.rs` | 200-210 | A new Ed25519 keypair is generated on every `REGISTER_NODE` call. The node's PeerId changes every boot, destroying DHT routing tables, peer reputation history, and network identity continuity. |
 | A5 | 🔴 CRITICAL | **Groth16 Trusted Setup Runs Per-PoL** | `main.rs` | 425-435 | `generate_tof_proof()` calls `Groth16::circuit_specific_setup()` on every Proof-of-Location generation. Trusted setup is computationally expensive (seconds on mobile). Should be done once and the proving/verification keys cached. |
 
-### 🟡 MAJOR — Not Tracked Anywhere
+### 🟡 MAJOR — Filed as GitHub Issues
 
 | ID | Severity | Title | File | Lines | Description |
 |----|----------|-------|------|-------|-------------|
@@ -157,7 +158,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive that ha
 | A12 | 🟡 MAJOR | **SOULBOUND_TOKEN Never Enforced** | `main.rs` | 48-50 | The Rust Vault processes `GENERATE_POL` commands without checking if `SOULBOUND_TOKEN` has been set. Any unverified node can generate location proofs without KYC clearance. |
 | A13 | 🟡 MAJOR | **Thread Safety: nearbyNodes** | `MainActivity.kt` | 98 | `mutableSetOf<String>()` is not thread-safe. BLE scan callback writes from a background thread while the UI thread reads, creating a potential ConcurrentModificationException. |
 
-### 🟠 MINOR — Not Tracked Anywhere
+### 🟠 MINOR — Filed as GitHub Issues
 
 | ID | Severity | Title | File | Description |
 |----|----------|-------|------|-------------|
@@ -171,121 +172,33 @@ These are **critical bugs and gaps** found during the codebase deep-dive that ha
 
 ---
 
-## 3. Gap Analysis — What's Missing
+## 3. Audit Issue → GitHub Issue Mapping
 
-### Cross-Reference: Audit Issues vs. Existing GitHub Issues
+✅ **All 20 audit issues have been filed on GitHub** (2026-05-28)
 
-| Audit Issue | Related GitHub Issue | Gap Status |
-|-------------|---------------------|------------|
-| A1: Missing VSOCK Handlers | #29 (Missing SBT) partially covers ISSUE_SBT | **MINT_GENESIS and FIRE_LOCK have NO issue** |
-| A2: ZK Circuit Missing Constraint | #89 (Build ZK-SNARK for ToF) | Issue exists but **doesn't mention the missing inequality constraint** — it's a task for building the circuit, not fixing the existing broken one |
-| A3: Simulated Ranging | #88 (TEE-to-TEE Ranging Protocol) | Issue exists for the **target** protocol but **doesn't acknowledge current simulation** |
-| A4: Ephemeral libp2p Identity | None | **NO ISSUE EXISTS** |
-| A5: Trusted Setup Per-PoL | None | **NO ISSUE EXISTS** |
-| A6: VSOCK TcpStream Hack | None | **NO ISSUE EXISTS** |
-| A7: No Peer Bootstrapping | #41 (Rendezvous Protocol) covers dynamic discovery but **no bootstrap list issue** | **PARTIALLY COVERED** |
-| A8: DefaultHasher | #24 (Not "Zero-Knowledge") | **COVERED** — issue acknowledges PoL isn't ZK |
-| A9: Block-Lattice Stub Only | #57 (Block-Lattice Architecture) | **COVERED** — epic is open with sub-issues |
-| A10: BLE No Service UUID | None | **NO ISSUE EXISTS** |
-| A11: No VSOCK Authentication | None | **NO ISSUE EXISTS** |
-| A12: SBT Never Enforced | #29 (Missing SBT KYC State) | **COVERED** |
-| A13: Thread Safety nearbyNodes | None | **NO ISSUE EXISTS** |
-| A14-A20: Minor Cleanup | None | **NO ISSUES EXIST** |
-
-### Summary: Issues That Need to Be Filed on GitHub
-
-**🔴 Critical (must file):**
-- A1 (partial) — MINT_GENESIS and FIRE_LOCK missing handlers
-- A4 — Ephemeral libp2p identity
-- A5 — Groth16 trusted setup runs per-PoL
-
-**🟡 Major (should file):**
-- A6 — VSOCK TcpStream semantic mismatch
-- A10 — BLE missing S.H.I.F.T. service UUID
-- A11 — No VSOCK authentication
-- A13 — Thread-unsafe nearbyNodes set
-
-**🟠 Minor (nice to file):**
-- A14-A20 — Cleanup and dead code removal
-
-**Already covered by existing issues (no action needed):**
-- A2 → partially by #89
-- A3 → partially by #88
-- A7 → partially by #41
-- A8 → by #24
-- A9 → by #57
-- A12 → by #29
+| Audit ID | Severity | GitHub Issue | Title |
+|----------|----------|-------------|-------|
+| A1 | 🔴 CRITICAL | [#97](https://github.com/Keshuin0/S.H.I.F.T/issues/97) | VSOCK command handlers missing for MINT_GENESIS, FIRE_LOCK, ISSUE_SBT |
+| A2 | 🔴 CRITICAL | [#98](https://github.com/Keshuin0/S.H.I.F.T/issues/98) | ZK Distance Bounding circuit missing inequality constraint |
+| A3 | 🔴 CRITICAL | [#99](https://github.com/Keshuin0/S.H.I.F.T/issues/99) | Cryptographic ranging is entirely simulated |
+| A4 | 🔴 CRITICAL | [#100](https://github.com/Keshuin0/S.H.I.F.T/issues/100) | libp2p PeerId regenerates on every boot |
+| A5 | 🔴 CRITICAL | [#109](https://github.com/Keshuin0/S.H.I.F.T/issues/109) | Groth16 trusted setup runs on every PoL |
+| A6 | 🟡 MAJOR | [#101](https://github.com/Keshuin0/S.H.I.F.T/issues/101) | VSOCK bridge uses TcpStream on non-TCP socket |
+| A7 | 🟡 MAJOR | [#102](https://github.com/Keshuin0/S.H.I.F.T/issues/102) | No peer bootstrap addresses |
+| A8 | 🟡 MAJOR | [#110](https://github.com/Keshuin0/S.H.I.F.T/issues/110) | PoL uses non-cryptographic DefaultHasher |
+| A9 | 🟡 MAJOR | [#103](https://github.com/Keshuin0/S.H.I.F.T/issues/103) | Block-Lattice has no operational logic |
+| A10 | 🟡 MAJOR | [#104](https://github.com/Keshuin0/S.H.I.F.T/issues/104) | BLE mesh scanner collects all Bluetooth devices |
+| A11 | 🟡 MAJOR | [#111](https://github.com/Keshuin0/S.H.I.F.T/issues/111) | No authentication on VSOCK bridge |
+| A12 | 🟡 MAJOR | [#112](https://github.com/Keshuin0/S.H.I.F.T/issues/112) | SOULBOUND_TOKEN never set or enforced |
+| A13 | 🟡 MAJOR | [#105](https://github.com/Keshuin0/S.H.I.F.T/issues/105) | nearbyNodes MutableSet is not thread-safe |
+| A14 | 🟠 MINOR | [#113](https://github.com/Keshuin0/S.H.I.F.T/issues/113) | activity_main.xml is unused |
+| A15 | 🟠 MINOR | [#114](https://github.com/Keshuin0/S.H.I.F.T/issues/114) | native-lib.cpp is dead code |
+| A16 | 🟠 MINOR | [#115](https://github.com/Keshuin0/S.H.I.F.T/issues/115) | jni crate in Cargo.toml is vestigial |
+| A17 | 🟠 MINOR | [#116](https://github.com/Keshuin0/S.H.I.F.T/issues/116) | Duplicate libif_watch .so files |
+| A18 | 🟠 MINOR | [#106](https://github.com/Keshuin0/S.H.I.F.T/issues/106) | Hardcoded fallback GPS coordinates |
+| A19 | 🟠 MINOR | [#107](https://github.com/Keshuin0/S.H.I.F.T/issues/107) | Gemini Gatekeeper invalid model name |
+| A20 | 🟠 MINOR | [#108](https://github.com/Keshuin0/S.H.I.F.T/issues/108) | ranging.rs distance off by factor of 2 |
 
 ---
 
-## 4. Recommended New GitHub Issues
-
-### Issue Template: A1 — MINT_GENESIS & FIRE_LOCK Missing Handlers
-
-**Title:** `[BUG] VSOCK command handlers missing for MINT_GENESIS and FIRE_LOCK`
-**Labels:** `Phase 1`, `Phase 3`, `bug`
-**Body:**
-
-> The Kotlin UI (MainActivity.kt) sends `MINT_GENESIS:` and `FIRE_LOCK:` commands via VSOCK to the Rust Vault, but `process_vault_command()` in `main.rs` has no handler for either command.
->
-> Both fall through to the `else` clause and return `"Unrecognized or deprecated command."`, silently breaking Block-Lattice genesis and OCC ride locking.
->
-> **Files affected:** `shift_core/src/main.rs` (L445-467), `MainActivity.kt` (L130, L140)
->
-> **Fix:** Implement `MINT_GENESIS:` handler to create a genesis StateBlock in LOCAL_LEDGER, and `FIRE_LOCK:` handler to broadcast a LOCK_REQUEST via GossipSub.
-
----
-
-### Issue Template: A4 — Ephemeral libp2p Identity
-
-**Title:** `[BUG] libp2p PeerId changes on every boot — breaks DHT routing`
-**Labels:** `Phase 2`, `bug`
-**Body:**
-
-> In `main.rs` line ~200, `REGISTER_NODE` generates a fresh `identity::Keypair::generate_ed25519()` on every call. This means the node's PeerId changes on every app restart.
->
-> **Impact:** DHT routing tables become invalid, peer reputation is lost, relay reservations expire, and the node is treated as a brand-new participant after every reboot.
->
-> **Fix:** Derive the libp2p keypair deterministically from the TEE's StrongBox ECDSA key, OR persist the Ed25519 key in the pKVM encrypted filesystem.
-
----
-
-### Issue Template: A5 — Groth16 Setup Per-PoL
-
-**Title:** `[PERF] Groth16 trusted setup runs on every Proof-of-Location`
-**Labels:** `Phase 1`, `performance`
-**Body:**
-
-> `generate_tof_proof()` in `zk_engine.rs` calls `Groth16::<Bls12_381>::circuit_specific_setup()` every time a PoL is generated. Trusted setup involves elliptic curve pairings and is extremely expensive on mobile hardware (multi-second delays).
->
-> **Fix:** Run trusted setup once at node initialization, cache the `ProvingKey` and `VerifyingKey` in a global `OnceLock`, and reuse them for all subsequent proofs.
-
----
-
-### Issue Template: A10 — BLE Missing Service UUID
-
-**Title:** `[BUG] BLE mesh scanner collects all nearby Bluetooth devices, not just S.H.I.F.T. nodes`
-**Labels:** `Phase 1`, `bug`
-**Body:**
-
-> `startBleMesh()` in `MainActivity.kt` starts BLE scanning and advertising without a custom GATT service UUID or manufacturer-specific data. The scan collects MAC addresses from ALL nearby BLE devices (headphones, smartwatches, TVs, etc.).
->
-> **Impact:** The zk-PSI rejection engine and peer count are polluted with non-S.H.I.F.T. devices, making proximity triangulation unreliable.
->
-> **Fix:** Define a S.H.I.F.T. custom 128-bit service UUID. Add it to `AdvertiseData` and filter `ScanSettings` to only match that UUID.
-
----
-
-### Issue Template: A11 — No VSOCK Authentication
-
-**Title:** `[SECURITY] No authentication on VSOCK bridge — any process can control the Vault`
-**Labels:** `Phase 1`, `security`
-**Body:**
-
-> The VSOCK listener in `main.rs` accepts any connection to port 8000 and processes commands without verifying the caller's identity. On a rooted device, any process can open a VSOCK connection and send commands like `REGISTER_NODE` or `GENERATE_POL`.
->
-> **Fix:** Implement a session handshake where the Kotlin host proves possession of the StrongBox key before the Vault accepts commands. Consider HMAC-signed command packets.
-
----
-
-*This file is a living document. Update it as issues are filed on GitHub and resolved in code.*
+*This file is a living document. Update it as issues are resolved in code.*
