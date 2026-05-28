@@ -34,13 +34,43 @@ Right now, our Rust Vault uses a standard DefaultHasher. It hashes the raw data 
 
 The Strategy: We built the "plumbing" using a standard DefaultHasher as a placeholder. The pipe works. Data flows in, and a hash flows out. Once the entire system architecture (hardware, biometrics, networking) is fully connected front-to-back, we come back and swap that simple Hasher for a heavy ZK-proving library.
 
-2. [⬜] Not Routed "Directly" into the TEE (The Hardware Limitation)
-This is the most critical vulnerability. Your blueprint requires routing baseband data directly into the TEE to bypass the OS entirely. Right now, our Kotlin app (the OS) grabs the location and hands it to the Rust Vault.
+2. [⬜] TEE Hypervisor Passthrough & Zero-Knowledge Distance Bounding (ZK-DB)Description:
 
-The Vulnerability: If a malicious driver "roots" their Android phone, they can install a GPS-spoofing app that feeds fake coordinates to the Android LocationManager. Our Rust Vault would blindly sign those fake coordinates, assuming they are real.
-The Reality: On consumer smartphones like the Galaxy Fold or iPhone, the manufacturer (Samsung/Apple) strictly locks down the hardware pathways. Third-party developers are physically blocked from writing custom code that talks directly from the GPS chip to the TrustZone.
+Phase 1.5 (Proximity Triangulation) successfully verified the local radio environment, but it relies on the Android OS to broker the BLE payload. This leaves the system vulnerable to OS-level interception (The "Echo Chamber" exploit) and internet-based relay attacks (The "Wormhole" Mafia exploit).To achieve true, un-spoofable hardware-backed location, we must completely bypass the Android OS and measure the physical speed of light using Cryptographic Distance Bounding inside a Type-1 Hypervisor.
 
-The Strategy: As we discussed, you actually already designed the workaround for this hardware limitation in your blueprint: Phase 1.5 (Proximity Triangulation). Because we cannot trust the OS-level GPS, we will use the BLE data (which we just successfully added) to mathematically cross-reference your phone's location with other nearby phones. We can't fix Gap #3 with a line of code; we fix it by building Phase 1.5 later.
+The Solution Architecture:
+
+Physical OS Isolation: Utilize the Android Virtualization Framework (AVF) to run the Rust Vault inside a Protected Kernel Virtual Machine (pKVM).Peripheral Passthrough: Physically revoke the Android OS's access to the UWB/BLE baseband controller and lease it directly to the Rust pKVM instance.
+Speed-of-Light Bounding: Execute nanosecond-level challenge-response cryptographic ranging (Time-of-Flight) between nodes.
+
+ZK-Compression: Aggregate Time-of-Flight (ToF) metrics into a lightweight ZK-SNARK using Arkworks before broadcasting to the S.H.I.F.T mesh.Acceptance Criteria:[ ] Android OS is mathematically and physically blinded to the UWB/BLE radio controller while the S.H.I.F.T Vault is active.[ ] The Vault successfully records a hardware-timestamped Round Trip Time (RTT) of a cryptographic nonce with a peer node.[ ] Relay attacks are automatically rejected by calculating $d \le c \cdot \frac{\Delta t - t_{compute}}{2}$.
+
+Sub-Issue 1: Implement AVF/pKVM Peripheral Passthrough
+Description:
+Currently, our Kotlin JNI bridge passes radio telemetry down to the Rust Vault. This OS-level "man-in-the-middle" must be eliminated. We need to deploy our Rust TEE logic as an AVF Microdroid payload and configure PCIe/Peripheral passthrough for the baseband radio.
+Action Items:
+Set up the Android Virtualization Framework (AVF) configurations in the project manifest.
+Package the Rust shift_core as a Microdroid VM payload.
+Write the hypervisor hypercall required to detach the UWB/Bluetooth controller from the primary Android host.
+Bind the baseband controller directly to the Microdroid guest VM.
+Log a successful raw radio emission generated directly from the Rust VM (bypassing Android Location/Bluetooth Managers entirely).
+
+Sub-Issue 2: [Task 1.6.2] Develop TEE-to-TEE Cryptographic Ranging Protocol
+Description:
+Once the Rust VM has physical control of the radio, we must establish a protocol to verify the exact distance of surrounding peers using the speed of light. This prevents distant attackers from routing legitimate remote radio signatures over the internet.
+
+Action Items:
+Implement a high-speed cryptographic nonce generator inside the Rust Vault.
+Create a lightweight radio broadcast schema: [Node_PubKey | Random_Nonce | Send_Timestamp].Develop the Fast-Response listener: When a peer receives the nonce, they immediately hash it with their TEE private key and broadcast the response.Build the Time-of-Flight (ToF) calculator to measure the delta between Send_Timestamp and the received response.
+Implement the rejection logic: If $\Delta t$ exceeds the nanosecond threshold for local proximity (indicating internet relay latency), drop the peer from the spatial K-Ring.Sub-Issue 3: [Task 1.6.3] Build ZK-SNARK Circuit for ToF Aggregation (Sub-50ms)
+Description:
+We cannot push raw hardware timestamps and raw signatures to the global ledger—it violates privacy and destroys our bandwidth overhead. We must compress the successful Distance Bounding calculations into a zero-knowledge proof.
+
+Action Items:
+Define a new Arkworks ConstraintSynthesizer for Distance Bounding.
+Create private witness variables for the peer's Node ID, the $\Delta t$ measurement, and the hardware processing delay.
+Enforce the mathematical rule inside the circuit proving that the calculated distance is less than the required radius (e.g., 50 meters).Implement a Verifiable Delay Function (VDF) parameter to ensure the Prover spent sequential processing time, preventing pre-computation attacks.
+Output a compressed 256-byte ZK-Receipt to be fired into the libp2p GossipSub mesh.
 
 [ ] 1.4 Biometric ZK Identity (Soulbound Tokens): Integrate FaceID/TouchID into the TEE. Solution to KYC/Safety: Create a system where third-party ID checks issue a "Soulbound Token" (non-transferable badge) to the driver's device, proving they are legally cleared without putting their ID on a public ledger.
 

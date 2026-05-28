@@ -1,14 +1,14 @@
+@file:Suppress("DEPRECATION")
+
 plugins {
     alias(libs.plugins.android.application)
 }
 
 android {
     namespace = "com.shift.core"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+
+    // ⚡ UNLOCKING AVF API (Android 15)
+    compileSdk = 37
 
     sourceSets {
         getByName("main") {
@@ -18,8 +18,9 @@ android {
 
     defaultConfig {
         applicationId = "com.shift.core"
-        minSdk = 29
-        targetSdk = 36
+        // ⚡ AVF requires a minimum of Android 14 (API 34)
+        minSdk = 35
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
