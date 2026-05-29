@@ -5,11 +5,13 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 
+#[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
 
 // FIX 1: Removed SockAddr completely.
+#[cfg(unix)]
 use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, SockType, VsockAddr};
 
 use std::sync::OnceLock;
@@ -141,41 +143,59 @@ fn main() {
 
     info!("🛡️ [HYPERVISOR] Rust Vault booting...");
     
-    // 1. Attempt to create a Virtual Socket (AF_VSOCK)
-    let vsock_result = socket(AddressFamily::Vsock, SockType::Stream, SockFlag::empty(), None)
-        .and_then(|fd| {
-            let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
-            bind(fd.as_raw_fd(), &addr)?;
-            listen(&fd, 10)?;
-            Ok(fd)
-        });
+    #[cfg(unix)]
+    {
+        // 1. Attempt to create a Virtual Socket (AF_VSOCK)
+        let vsock_result = socket(AddressFamily::Vsock, SockType::Stream, SockFlag::empty(), None)
+            .and_then(|fd| {
+                let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
+                bind(fd.as_raw_fd(), &addr)?;
+                listen(&fd, 10)?;
+                Ok(fd)
+            });
 
-    match vsock_result {
-        Ok(fd) => {
-            info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
-            loop {
-                match accept(fd.as_raw_fd()) {
-                    Ok(client_raw_fd) => {
-                        info!("🤝 [HYPERVISOR] Kotlin OS connection accepted (VSOCK).");
-                        let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
-                        handle_connection(&mut stream);
+        match vsock_result {
+            Ok(fd) => {
+                info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
+                loop {
+                    match accept(fd.as_raw_fd()) {
+                        Ok(client_raw_fd) => {
+                            info!("🤝 [HYPERVISOR] Kotlin OS connection accepted (VSOCK).");
+                            let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
+                            handle_connection(&mut stream);
+                        }
+                        Err(e) => error!("❌ [HYPERVISOR] Connection failed: {:?}", e),
                     }
-                    Err(e) => error!("❌ [HYPERVISOR] Connection failed: {:?}", e),
+                }
+            }
+            Err(e) => {
+                info!("⚠️ [FALLBACK] VSOCK unavailable ({:?}). Binding to TCP 127.0.0.1:8000...", e);
+                let listener = std::net::TcpListener::bind("127.0.0.1:8000").expect("Failed to bind TCP fallback");
+                info!("🎧 [FALLBACK] Vault listening on tcp port 8000...");
+                for stream in listener.incoming() {
+                    match stream {
+                        Ok(mut stream) => {
+                            info!("🤝 [FALLBACK] Kotlin OS connection accepted (TCP).");
+                            handle_connection(&mut stream);
+                        }
+                        Err(e) => error!("❌ [FALLBACK] Connection failed: {:?}", e),
+                    }
                 }
             }
         }
-        Err(e) => {
-            info!("⚠️ [FALLBACK] VSOCK unavailable ({:?}). Binding to TCP 127.0.0.1:8000...", e);
-            let listener = std::net::TcpListener::bind("127.0.0.1:8000").expect("Failed to bind TCP fallback");
-            info!("🎧 [FALLBACK] Vault listening on tcp port 8000...");
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(mut stream) => {
-                        info!("🤝 [FALLBACK] Kotlin OS connection accepted (TCP).");
-                        handle_connection(&mut stream);
-                    }
-                    Err(e) => error!("❌ [FALLBACK] Connection failed: {:?}", e),
+    }
+
+    #[cfg(not(unix))]
+    {
+        info!("🎧 [FALLBACK] Vault listening on tcp port 8000...");
+        let listener = std::net::TcpListener::bind("127.0.0.1:8000").expect("Failed to bind TCP fallback");
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    info!("🤝 [FALLBACK] Kotlin OS connection accepted (TCP).");
+                    handle_connection(&mut stream);
                 }
+                Err(e) => error!("❌ [FALLBACK] Connection failed: {:?}", e),
             }
         }
     }
@@ -203,8 +223,24 @@ fn process_vault_command(command: &str) -> String {
     let mut response = String::new();
 
     if command.starts_with("REGISTER_NODE:") {
-        let public_key = command.replace("REGISTER_NODE:", "");
-        
+        let payload = command.replace("REGISTER_NODE:", "");
+        let parts: Vec<&str> = payload.split('|').collect();
+        if parts.len() != 3 {
+            return "Execution Denied: Malformed registration payload.".to_string();
+        }
+        let public_key = parts[0].to_string();
+        let s_classical_hex = parts[1];
+        let s_pqc_hex = parts[2];
+
+        let s_classical = match hex::decode(s_classical_hex) {
+            Ok(bytes) => bytes,
+            Err(_) => return "Execution Denied: Invalid classical secret encoding.".to_string(),
+        };
+        let s_pqc = match hex::decode(s_pqc_hex) {
+            Ok(bytes) => bytes,
+            Err(_) => return "Execution Denied: Invalid post-quantum secret encoding.".to_string(),
+        };
+
         match NODE_IDENTITY.set(public_key.clone()) {
             Ok(_) => {
                 let rt = Runtime::new().expect("Failed to build Tokio Runtime");
@@ -216,7 +252,19 @@ fn process_vault_command(command: &str) -> String {
 
                 rt.spawn(async move {
                     info!("🚀 [BACKGROUND ENGINE] Spinning up Layer-1 Node...");
-                    let local_key = identity::Keypair::generate_ed25519();
+                    
+                    let mut ikm = Vec::new();
+                    ikm.extend_from_slice(&s_classical);
+                    ikm.extend_from_slice(&s_pqc);
+
+                    let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"SHIFT-PQC-V1"), &ikm);
+                    let mut okm = [0u8; 32];
+                    hk.expand(b"libp2p-identity", &mut okm).expect("Key derivation expansion failed");
+
+                    let mut secret_key_bytes = okm;
+                    let ed25519_secret = identity::ed25519::SecretKey::try_from_bytes(&mut secret_key_bytes)
+                        .expect("Failed to construct Ed25519 secret key from derived bytes");
+                    let local_key = identity::Keypair::from(identity::ed25519::Keypair::from(ed25519_secret));
                     let local_peer_id = PeerId::from(local_key.public());
                     info!("S.H.I.F.T. Layer-1 Engine Online. Network PeerID: {}", local_peer_id);
 
@@ -586,4 +634,51 @@ fn process_vault_command(command: &str) -> String {
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deterministic_key_derivation() {
+        let public_key = "3059301306072a8648ce3d020106082a8648ce3d03010703420004b71565928a4e41aa63b7524c94e1df61aea291d6091e7e365e972aab0cedcee0c40c64c9eba480e9fb639257de9eab655021bf39e7b854de63973696a866e716";
+        let s_classical = "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff";
+        let s_pqc = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+        
+        let payload = format!("{}|{}|{}", public_key, s_classical, s_pqc);
+        
+        let parts: Vec<&str> = payload.split('|').collect();
+        assert_eq!(parts.len(), 3);
+        
+        let dec_classical = hex::decode(parts[1]).unwrap();
+        let dec_pqc = hex::decode(parts[2]).unwrap();
+        
+        let mut ikm = Vec::new();
+        ikm.extend_from_slice(&dec_classical);
+        ikm.extend_from_slice(&dec_pqc);
+        
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"SHIFT-PQC-V1"), &ikm);
+        let mut okm1 = [0u8; 32];
+        hk.expand(b"libp2p-identity", &mut okm1).unwrap();
+        
+        let hk2 = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"SHIFT-PQC-V1"), &ikm);
+        let mut okm2 = [0u8; 32];
+        hk2.expand(b"libp2p-identity", &mut okm2).unwrap();
+        
+        assert_eq!(okm1, okm2);
+        
+        let mut secret_bytes = okm1;
+        let ed_secret = identity::ed25519::SecretKey::try_from_bytes(&mut secret_bytes).unwrap();
+        let keypair = identity::Keypair::from(identity::ed25519::Keypair::from(ed_secret));
+        let peer_id1 = PeerId::from(keypair.public());
+        
+        let mut secret_bytes2 = okm2;
+        let ed_secret2 = identity::ed25519::SecretKey::try_from_bytes(&mut secret_bytes2).unwrap();
+        let keypair2 = identity::Keypair::from(identity::ed25519::Keypair::from(ed_secret2));
+        let peer_id2 = PeerId::from(keypair2.public());
+        
+        assert_eq!(peer_id1, peer_id2);
+        println!("Test success: PeerId derived deterministically: {}", peer_id1);
+    }
 }

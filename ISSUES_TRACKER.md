@@ -1,7 +1,7 @@
 # S.H.I.F.T. — Issues Tracker & Gap Analysis
 
 **Generated:** 2026-05-28 | **Updated:** 2026-05-28 | **Source:** https://github.com/Keshuin0/S.H.I.F.T/issues
-**Total GitHub Items:** 117 (Issues + PRs) | **Open Issues:** 74 | **Closed Issues:** 22 | **PRs:** 8
+**Total GitHub Items:** 117 (Issues + PRs) | **Open Issues:** 76 | **Closed Issues:** 30 | **PRs:** 11
 **Audit Issues Filed:** ✅ All 20 (A1-A20) — [View on GitHub](https://github.com/Keshuin0/S.H.I.F.T/issues?q=label%3Aaudit)
 
 ---

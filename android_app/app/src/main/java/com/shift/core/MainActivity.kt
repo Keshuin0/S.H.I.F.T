@@ -474,7 +474,9 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             statusText.append("\n⚙️ [HYPERVISOR] Rust Payload Running. VSOCK Bridge established.")
                             TeeBridge.activeVm = args?.get(0)
-                            executeSecureBootSequence()
+                            authenticateForBoot {
+                                executeSecureBootSequence()
+                            }
                         }
                     }
                     "onStopped" -> {
@@ -507,7 +509,12 @@ class MainActivity : AppCompatActivity() {
         ioScope.launch {
             try {
                 val publicKeyHex = generateTrustZoneKey()
-                val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$publicKeyHex")
+                val sClassical = deriveSClassical()
+                val sPqc = getOrGeneratePqcSecret()
+
+                val payload = "$publicKeyHex|${byteArrayToHexString(sClassical)}|${byteArrayToHexString(sPqc)}"
+                val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$payload")
+
                 val sbtToken = "SBT-CLEAR-ID-9942"
                 val rustSbtResponse = TeeBridge.sendCommand("ISSUE_SBT:$sbtToken")
                 val genesisResponse = TeeBridge.sendCommand("MINT_GENESIS:")
@@ -518,6 +525,7 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     statusText.append("\nBoot Failed: ${e.message}")
+                    Log.e("SHIFT_BOOT", "Secure boot execution failed", e)
                 }
             }
         }
@@ -611,18 +619,217 @@ class MainActivity : AppCompatActivity() {
 
         if (!keyStore.containsAlias(keyAlias)) {
             val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
-            val parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
-                .setDigests(KeyProperties.DIGEST_SHA256)
-                .setIsStrongBoxBacked(true)
-                .setUserAuthenticationRequired(true)
-                .build()
-            keyPairGenerator.initialize(parameterSpec)
-            keyPairGenerator.generateKeyPair()
+            var parameterSpec: KeyGenParameterSpec
+            
+            try {
+                parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setIsStrongBoxBacked(true)
+                    .setUserAuthenticationRequired(true)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with StrongBox backing.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "StrongBox EC Signing Key failed, falling back to standard TEE. (${e.message})")
+                parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setIsStrongBoxBacked(false)
+                    .setUserAuthenticationRequired(true)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with standard TEE backing.")
+            }
         }
 
         return keyStore.getCertificate(keyAlias).publicKey.encoded.joinToString("") {
             it.toString(16).padStart(2, '0')
         }
+    }
+
+    private val agreementKeyAlias = "SHIFT_SOVEREIGN_AGREEMENT_KEY"
+
+    private fun generateTrustZoneAgreementKey() {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+
+        if (!keyStore.containsAlias(agreementKeyAlias)) {
+            val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+            var parameterSpec: KeyGenParameterSpec
+            
+            try {
+                parameterSpec = KeyGenParameterSpec.Builder(agreementKeyAlias, KeyProperties.PURPOSE_AGREE_KEY)
+                    .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
+                    .setIsStrongBoxBacked(true)
+                    .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(15)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Agreement Key with StrongBox backing.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "StrongBox EC Agreement Key failed, falling back to standard TEE. (${e.message})")
+                parameterSpec = KeyGenParameterSpec.Builder(agreementKeyAlias, KeyProperties.PURPOSE_AGREE_KEY)
+                    .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
+                    .setIsStrongBoxBacked(false)
+                    .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(15)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Agreement Key with standard TEE backing.")
+            }
+        }
+    }
+
+    private val pqcWrapperKeyAlias = "SHIFT_PQC_WRAPPER_KEY"
+
+    private fun generatePqcWrapperKey() {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+
+        if (!keyStore.containsAlias(pqcWrapperKeyAlias)) {
+            val keyGenerator = javax.crypto.KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            var parameterSpec: KeyGenParameterSpec
+            
+            try {
+                parameterSpec = KeyGenParameterSpec.Builder(
+                    pqcWrapperKeyAlias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setIsStrongBoxBacked(true)
+                .setUserAuthenticationRequired(true)
+                .setUserAuthenticationValidityDurationSeconds(15)
+                .build()
+                keyGenerator.init(parameterSpec)
+                keyGenerator.generateKey()
+                Log.d("SHIFT_KEYSTORE", "Generated PQC AES Wrapper Key with StrongBox backing.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "StrongBox AES Wrapper Key failed, falling back to standard TEE. (${e.message})")
+                parameterSpec = KeyGenParameterSpec.Builder(
+                    pqcWrapperKeyAlias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setIsStrongBoxBacked(false)
+                .setUserAuthenticationRequired(true)
+                .setUserAuthenticationValidityDurationSeconds(15)
+                .build()
+                keyGenerator.init(parameterSpec)
+                keyGenerator.generateKey()
+                Log.d("SHIFT_KEYSTORE", "Generated PQC AES Wrapper Key with standard TEE backing.")
+            }
+        }
+    }
+
+    private fun getOrGeneratePqcSecret(): ByteArray {
+        val sharedPrefs = getSharedPreferences("shift_pqc_prefs", Context.MODE_PRIVATE)
+        val encryptedHex = sharedPrefs.getString("encrypted_pqc", null)
+        val ivHex = sharedPrefs.getString("iv_pqc", null)
+
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        
+        generatePqcWrapperKey()
+        val secretKey = keyStore.getKey(pqcWrapperKeyAlias, null) as javax.crypto.SecretKey
+
+        if (encryptedHex != null && ivHex != null) {
+            val encryptedBytes = hexStringToByteArray(encryptedHex)
+            val ivBytes = hexStringToByteArray(ivHex)
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            val spec = javax.crypto.spec.GCMParameterSpec(128, ivBytes)
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, spec)
+            return cipher.doFinal(encryptedBytes)
+        } else {
+            val secureRandom = java.security.SecureRandom()
+            val rawSeed = ByteArray(32)
+            secureRandom.nextBytes(rawSeed)
+
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey)
+            val encryptedBytes = cipher.doFinal(rawSeed)
+            val ivBytes = cipher.iv
+
+            sharedPrefs.edit().apply {
+                putString("encrypted_pqc", byteArrayToHexString(encryptedBytes))
+                putString("iv_pqc", byteArrayToHexString(ivBytes))
+                apply()
+            }
+            return rawSeed
+        }
+    }
+
+    private fun deriveSClassical(): ByteArray {
+        val staticSaltPubKeyBytes = byteArrayOf(
+            0x30.toByte(), 0x59.toByte(), 0x30.toByte(), 0x13.toByte(), 0x06.toByte(), 0x07.toByte(), 0x2a.toByte(), 0x86.toByte(),
+            0x48.toByte(), 0xce.toByte(), 0x3d.toByte(), 0x02.toByte(), 0x01.toByte(), 0x06.toByte(), 0x08.toByte(), 0x2a.toByte(),
+            0x86.toByte(), 0x48.toByte(), 0xce.toByte(), 0x3d.toByte(), 0x03.toByte(), 0x01.toByte(), 0x07.toByte(), 0x03.toByte(),
+            0x42.toByte(), 0x00.toByte(), 0x04.toByte(), 0xb7.toByte(), 0x15.toByte(), 0x65.toByte(), 0x92.toByte(), 0x8a.toByte(),
+            0x4e.toByte(), 0x41.toByte(), 0xaa.toByte(), 0x63.toByte(), 0xb7.toByte(), 0x52.toByte(), 0x4c.toByte(), 0x94.toByte(),
+            0xe1.toByte(), 0xdf.toByte(), 0x61.toByte(), 0xae.toByte(), 0xa2.toByte(), 0x91.toByte(), 0xd6.toByte(), 0x09.toByte(),
+            0x1e.toByte(), 0x7e.toByte(), 0x36.toByte(), 0x5e.toByte(), 0x97.toByte(), 0x2a.toByte(), 0xab.toByte(), 0x0c.toByte(),
+            0xed.toByte(), 0xce.toByte(), 0xe0.toByte(), 0xc4.toByte(), 0x0c.toByte(), 0x64.toByte(), 0xc9.toByte(), 0xeb.toByte(),
+            0xa4.toByte(), 0x80.toByte(), 0xe9.toByte(), 0xfb.toByte(), 0x63.toByte(), 0x92.toByte(), 0x57.toByte(), 0xde.toByte(),
+            0x9e.toByte(), 0xab.toByte(), 0x65.toByte(), 0x50.toByte(), 0x21.toByte(), 0xbf.toByte(), 0x39.toByte(), 0xe7.toByte(),
+            0xb8.toByte(), 0x54.toByte(), 0xde.toByte(), 0x63.toByte(), 0x97.toByte(), 0x36.toByte(), 0x96.toByte(), 0xa8.toByte(),
+            0x66.toByte(), 0xe7.toByte(), 0x16.toByte()
+        )
+
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        
+        generateTrustZoneAgreementKey()
+
+        val privateKey = keyStore.getKey(agreementKeyAlias, null) as java.security.PrivateKey
+        val keyFactory = java.security.KeyFactory.getInstance("EC")
+        val pubKeySpec = java.security.spec.X509EncodedKeySpec(staticSaltPubKeyBytes)
+        val peerPubKey = keyFactory.generatePublic(pubKeySpec)
+
+        val keyAgreement = javax.crypto.KeyAgreement.getInstance("ECDH", "AndroidKeyStore")
+        keyAgreement.init(privateKey)
+        keyAgreement.doPhase(peerPubKey, true)
+        return keyAgreement.generateSecret()
+    }
+
+    private fun byteArrayToHexString(bytes: ByteArray): String {
+        return bytes.joinToString("") { String.format("%02x", it) }
+    }
+
+    private fun hexStringToByteArray(s: String): ByteArray {
+        val len = s.length
+        val data = ByteArray(len / 2)
+        var i = 0
+        while (i < len) {
+            data[i / 2] = ((Character.digit(s[i], 16) shl 4) + Character.digit(s[i + 1], 16)).toByte()
+            i += 2
+        }
+        return data
+    }
+
+    private fun authenticateForBoot(onAuthenticated: () -> Unit) {
+        val biometricPrompt = BiometricPrompt.Builder(this)
+            .setTitle("Ignite Node Identity")
+            .setSubtitle("Authenticate hardware to derive secure keys")
+            .setNegativeButton("Cancel", mainExecutor) { _, _ ->
+                statusText.append("\n\n--- BOOT DENIED ---\nBiometric authentication cancelled.")
+            }
+            .build()
+
+        biometricPrompt.authenticate(CancellationSignal(), mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                super.onAuthenticationSucceeded(result)
+                statusText.append("\n\n[Biometric Verified. Deriving P2P Cryptographic Keys...]")
+                onAuthenticated()
+            }
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                super.onAuthenticationError(errorCode, errString)
+                statusText.append("\n\n--- BOOT FAILED ---\nHardware Lock Error: $errString")
+            }
+        })
     }
 
     private fun igniteNativeFallback() {
@@ -652,7 +859,9 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     statusText.append("\n⚙️ [FALLBACK] Rust Payload Running. TCP Bridge established.")
                     TeeBridge.isNativeFallback = true
-                    executeSecureBootSequence()
+                    authenticateForBoot {
+                        executeSecureBootSequence()
+                    }
                 }
 
                 val reader = nativeProcess?.inputStream?.bufferedReader()

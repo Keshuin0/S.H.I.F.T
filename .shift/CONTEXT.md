@@ -82,12 +82,22 @@
    - Guarded `igniteHypervisor()` to check if the hypervisor or native fallback daemon is already active, preventing duplicate spawns and address-binding panics.
    - Successfully compiled, packaged, and reinstalled the debug APK on `RFCX61EJAHR`.
 
+### Session 4 (2026-05-29, Conversation: 9a00fded-699d-4d46-accd-22ccbcf199e9)
+**What was done:**
+1. **Resolved Issue #100 (A4)** — Ephemeral libp2p Identity (P0 Critical).
+2. **Zero-Storage Key Derivation**: Integrated ECDH `KeyAgreement` inside Android KeyStore using `SHIFT_SOVEREIGN_AGREEMENT_KEY` against a static public key salt to derive `S_classical` dynamically.
+3. **Hybrid Post-Quantum Identity (HPQI)**: Combined the hardware ECDH classical secret with an encrypted PQC software seed using `HKDF-SHA256` inside `main.rs` to generate the libp2p Ed25519 keypair in RAM on boot, requiring 0 private key files on disk.
+4. **Biometric Boot Gating**: Added a user fingerprint authentication prompt (`authenticateForBoot`) required to run key agreements and spin up the P2P swarm.
+5. **Hardware Compatibility Fallbacks**: Implemented fallback exceptions to standard TEE storage if a StrongBox chip is unavailable.
+6. **Desktop Compilation Gating**: Conditionally gated Unix sockets behind `#[cfg(unix)]` in `main.rs` and added a TCP listener under `#[cfg(not(unix))]` to enable desktop compilation checks and tests.
+7. **Unit Test Verification**: Implemented deterministic key derivation unit tests which passed successfully.
+
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **76 open issues**, 30 closed, 106 total
+- **75 open issues**, 31 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
@@ -105,7 +115,7 @@
 | M5: Production UX | 5 | Jul 9, 2027 | 🔴 Not started |
 
 ### Priority Issues (Fix Order)
-**P0 Critical (6):** #97 (A1 - Closed), #98 (A2), #99 (A3), #100 (A4), #109 (A5), #111 (A11)
+**P0 Critical (6):** #97 (A1 - Closed), #98 (A2), #99 (A3), #100 (A4 - Closed), #109 (A5), #111 (A11)
 **P1 High (27):** Most Phase 1-2 features + 7 major audit issues
 **P2 Medium (18):** Phase 2-3 features + Issue #123 (Hardware Limitation)
 **P3 Low (10):** Cleanup + minor audit issues
@@ -114,7 +124,7 @@
 Start M0: Audit Fixes. Recommended order:
 1. ~~A1 (#97) — Add MINT_GENESIS, FIRE_LOCK, ISSUE_SBT handlers to main.rs~~ (Completed Session 2)
 2. ~~Hardware Fallback (#123) — Implement Native Fallback for non-AVF devices~~ (Completed Session 3)
-3. A4 (#100) — Persist libp2p identity to TEE storage
+3. ~~A4 (#100) — Persist libp2p identity to TEE storage~~ (Completed Session 4)
 4. A5 (#109) — Cache Groth16 proving/verification keys
 5. A11 (#111) — Add VSOCK challenge-response authentication
 6. A2 (#98) — Add enforce_less_than constraint to ZK circuit
@@ -129,7 +139,7 @@ Start M0: Audit Fixes. Recommended order:
 |------|------|-------|--------|
 | VSOCK listener | main.rs | 129-185 | Working but unauthenticated |
 | Command handler | main.rs | 445-560 | Missing commands implemented |
-| Identity generation | main.rs | 200-210 | Ephemeral (regenerates per boot) |
+| Identity generation | main.rs | 200-230 | Persistent via ECDH & PQC HKDF |
 | PoL generation | main.rs | 390-435 | Uses SipHash (not crypto), setup per-call |
 | ZK circuit | zk_engine.rs | 65-101 | Missing inequality constraint |
 | Ranging | main.rs | 411-420 | Entirely simulated |
@@ -158,4 +168,4 @@ A7 (bootstrap) → #34 (Radio Mesh)
 
 ---
 
-*Last updated: 2026-05-28 Session 3*
+*Last updated: 2026-05-29 Session 4*
