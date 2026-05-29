@@ -97,7 +97,7 @@
 ## Current State
 
 ### GitHub Organization
-- **75 open issues**, 31 closed, 106 total
+- **74 open issues**, 32 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
@@ -107,7 +107,7 @@
 ### Milestone Status
 | Milestone | Issues | Due | Status |
 |-----------|--------|-----|--------|
-| M0: Audit Fixes | 24 | Jul 10, 2026 | 🔴 Not started |
+| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (3 closed) |
 | M1: Root of Trust | 14 | Oct 2, 2026 | 🟡 In Progress (Fallback added) |
 | M2: P2P Mesh MVP | 18 | Dec 25, 2026 | 🔴 Not started |
 | M3: Ledger & Settlement | 8 | Mar 5, 2027 | 🔴 Not started |
