@@ -56,7 +56,7 @@
 - `D:\Project\Project S.H.I.F.T\.shift\audit_report.md` (full audit findings)
 - `D:\Project\Project S.H.I.F.T\ISSUES_TRACKER.md` (issue inventory)
 
-### Session 2 (2026-05-28, Current)
+### Session 2 (2026-05-28)
 **What was done:**
 1. **Implemented 3 missing VSOCK handlers** (`ISSUE_SBT`, `MINT_GENESIS`, `FIRE_LOCK`) in `main.rs`.
 2. **Auto-init boot sequence** added to `MainActivity.kt` so the node fully initializes autonomously on boot.
@@ -65,42 +65,60 @@
 5. **Closed GitHub Issues #97 and #112** with detailed closing comments.
 6. **Created design Issue #120** on GitHub for genesis balance placeholder and tokenomics.
 
+### Session 3 (2026-05-28, Current)
+**What was done:**
+1. **Implemented Hybrid Path (Dual-Bind Fallback)** to bypass Samsung pKVM limitations.
+   - Tier 1: Hardware-isolated AVF/pKVM via VSOCK port 8000 inside Microdroid VM (Pixel 8, etc.).
+   - Tier 2: SELinux-sandboxed native daemon via TCP port 8000 on `127.0.0.1` (Galaxy Z Fold6, etc.).
+2. **Created & Labeled GitHub Issue #123**: Documented the hypervisor hardware limitations, setting tags (`platform: android`, `component: tee-vault`, `phase: 1`, `type: research`, `P2: medium`) and assigning the `M1: Root of Trust` milestone.
+3. **Resolved TCP Bridge Connection Error (`ECONNREFUSED`)**:
+   - Rebuilt Rust core and replaced the stale `libshift_core.so` file in `jniLibs` with the latest build.
+   - Added a `delay(500)` in `igniteNativeFallback` to give the native daemon time to boot and bind to port 8000.
+   - Added connection retries (5 attempts, 100ms intervals) in `TeeBridge.sendCommand` to eliminate race conditions.
+   - Enabled Logcat output routing of the daemon's stdout/stderr under the tag `SHIFT_VAULT_DAEMON`.
+4. **Deployed and Installed Updated App**: Compiled and successfully installed the updated APK directly on the connected phone via command-line ADB.
+5. **Fixed Log Auto-Scroll & Spawn Guard (Verification Stage)**:
+   - Replaced `addTextChangedListener` with `addOnLayoutChangeListener` on `statusText` to trigger console auto-scrolling after layout sizing passes, resolving the race condition clipping Phase 4.3 smart contract logs.
+   - Guarded `igniteHypervisor()` to check if the hypervisor or native fallback daemon is already active, preventing duplicate spawns and address-binding panics.
+   - Successfully compiled, packaged, and reinstalled the debug APK on `RFCX61EJAHR`.
+
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **75 open issues**, 30 closed, 105 total
+- **76 open issues**, 30 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
 - **3 issue templates** on main branch (blank issues disabled)
-- **75/75 issues** in project board
+- **76/76 issues** in project board
 
 ### Milestone Status
 | Milestone | Issues | Due | Status |
 |-----------|--------|-----|--------|
 | M0: Audit Fixes | 24 | Jul 10, 2026 | 🔴 Not started |
-| M1: Root of Trust | 13 | Oct 2, 2026 | 🔴 Not started |
+| M1: Root of Trust | 14 | Oct 2, 2026 | 🟡 In Progress (Fallback added) |
 | M2: P2P Mesh MVP | 18 | Dec 25, 2026 | 🔴 Not started |
 | M3: Ledger & Settlement | 8 | Mar 5, 2027 | 🔴 Not started |
 | M4: Economics & AI | 7 | May 14, 2027 | 🔴 Not started |
 | M5: Production UX | 5 | Jul 9, 2027 | 🔴 Not started |
 
 ### Priority Issues (Fix Order)
-**P0 Critical (6):** #97 (A1), #98 (A2), #99 (A3), #100 (A4), #109 (A5), #111 (A11)
+**P0 Critical (6):** #97 (A1 - Closed), #98 (A2), #99 (A3), #100 (A4), #109 (A5), #111 (A11)
 **P1 High (27):** Most Phase 1-2 features + 7 major audit issues
-**P2 Medium (17):** Phase 2-3 features
+**P2 Medium (18):** Phase 2-3 features + Issue #123 (Hardware Limitation)
 **P3 Low (10):** Cleanup + minor audit issues
 
 ### Next Work
 Start M0: Audit Fixes. Recommended order:
 1. ~~A1 (#97) — Add MINT_GENESIS, FIRE_LOCK, ISSUE_SBT handlers to main.rs~~ (Completed Session 2)
-2. A4 (#100) — Persist libp2p identity to TEE storage
-3. A5 (#109) — Cache Groth16 proving/verification keys
-4. A11 (#111) — Add VSOCK challenge-response authentication
-5. A2 (#98) — Add enforce_less_than constraint to ZK circuit
-6. A3 (#99) — Replace simulated ranging with real BLE/UWB
+2. ~~Hardware Fallback (#123) — Implement Native Fallback for non-AVF devices~~ (Completed Session 3)
+3. A4 (#100) — Persist libp2p identity to TEE storage
+4. A5 (#109) — Cache Groth16 proving/verification keys
+5. A11 (#111) — Add VSOCK challenge-response authentication
+6. A2 (#98) — Add enforce_less_than constraint to ZK circuit
+7. A3 (#99) — Replace simulated ranging with real BLE/UWB
 
 ---
 
@@ -140,4 +158,4 @@ A7 (bootstrap) → #34 (Radio Mesh)
 
 ---
 
-*Last updated: 2026-05-28 Session 2*
+*Last updated: 2026-05-28 Session 3*

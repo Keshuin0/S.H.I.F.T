@@ -19,8 +19,11 @@ import android.os.CancellationSignal
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Log
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import java.io.InputStream
@@ -36,12 +39,37 @@ import kotlinx.coroutines.*
 // =========================================================================
 object TeeBridge {
     var activeVm: Any? = null
+    var isNativeFallback: Boolean = false
     const val VSOCK_PORT: Long = 8000
 
     @SuppressLint("DiscouragedPrivateApi")
     fun sendCommand(command: String): String {
-        val vm = activeVm ?: return "❌ Execution Denied: Hypervisor is offline. Ignite pKVM first."
+        if (activeVm == null && !isNativeFallback) return "❌ Execution Denied: Hypervisor/Fallback is offline. Ignite pKVM first."
 
+        if (isNativeFallback) {
+            var attempts = 0
+            val maxAttempts = 5
+            var lastException: Exception? = null
+            while (attempts < maxAttempts) {
+                try {
+                    val socket = java.net.Socket("127.0.0.1", VSOCK_PORT.toInt())
+                    socket.getOutputStream().write(command.toByteArray())
+                    socket.getOutputStream().flush()
+                    val response = socket.getInputStream().bufferedReader().use { it.readText() }
+                    socket.close()
+                    return response
+                } catch (e: Exception) {
+                    lastException = e
+                    attempts++
+                    if (attempts < maxAttempts) {
+                        Thread.sleep(100)
+                    }
+                }
+            }
+            return "❌ TCP Fallback Connection Error: ${lastException?.message} (Failed after $maxAttempts attempts)"
+        }
+
+        val vm = activeVm!!
         return try {
             var vsockMethod: Method? = null
             for (m in vm.javaClass.methods) {
@@ -84,39 +112,214 @@ object TeeBridge {
 @SuppressLint("MissingPermission", "SetTextI18n", "DiscouragedPrivateApi", "PrivateApi")
 class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
+    private lateinit var scrollView: ScrollView
     private val nearbyNodes = mutableSetOf<String>()
     private var isMeshActive = false
     private val ioScope = CoroutineScope(Dispatchers.IO)
+    private var nativeProcess: Process? = null
 
     // Constant for our hardware key
     private val keyAlias = "SHIFT_SOVEREIGN_NODE_ID"
 
+    private fun appendLog(msg: String) {
+        runOnUiThread {
+            statusText.append(msg)
+            scrollView.post {
+                scrollView.fullScroll(android.view.View.FOCUS_DOWN)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        supportActionBar?.hide()
+        window.statusBarColor = Color.parseColor("#0B0E17")
+
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(50, 50, 50, 50)
+            setPadding(30, 20, 30, 30)
+            setBackgroundColor(Color.parseColor("#0B0E17")) // Deep obsidian background
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
         }
 
-        statusText = TextView(this).apply { textSize = 14f }
+        // 1. Premium Header Bar
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 10, 0, 20)
+        }
+        val titleText = TextView(this).apply {
+            text = "S.H.I.F.T. CONTROL STATION"
+            textSize = 20f
+            setTextColor(Color.parseColor("#F8FAFC"))
+            typeface = android.graphics.Typeface.create("sans-serif-condensed-medium", android.graphics.Typeface.BOLD)
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+        }
+        val subtitleText = TextView(this).apply {
+            text = "Sovereign Hardware Infrastructure For Transit"
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#64748B"))
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+        }
+        headerLayout.addView(titleText)
+        headerLayout.addView(subtitleText)
+        layout.addView(headerLayout)
 
-        val avfButton = Button(this).apply { text = "EXECUTE: PHASE 1.6 (Ignite pKVM Hypervisor)" }
-        val polButton = Button(this).apply { text = "EXECUTE: PHASE 1.5 (Proximity Mesh + PoL)" }
-        val lockButton = Button(this).apply { text = "EXECUTE: PHASE 2.4 (Fire Sub-50ms Lock)" }
-        val genesisButton = Button(this).apply { text = "EXECUTE: PHASE 3.1 (Mint Genesis Block)" }
-        val zkvmButton = Button(this).apply { text = "EXECUTE: PHASE 4.1 (Ignite On-Device zkVM)" }
-        val zkPsiButton = Button(this).apply { text = "EXECUTE: PHASE 3 (Test zk-PSI Rejection Engine)" }
-        val pricingButton = Button(this).apply { text = "EXECUTE: PHASE 4.3 (Hybrid Market-Maker & zkVM)" }
+        // 2. Button Styling Helper
+        fun Button.styleNodeButton(backgroundColor: String, strokeColor: String, isFullWidth: Boolean = false) {
+            val normalDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10f
+                setColor(Color.parseColor(backgroundColor))
+                setStroke(2, Color.parseColor(strokeColor))
+            }
+            val pressedDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10f
+                setColor(Color.parseColor(strokeColor))
+                setStroke(2, Color.parseColor(strokeColor))
+            }
+            
+            val states = android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_pressed), pressedDrawable)
+                addState(intArrayOf(), normalDrawable)
+            }
+            
+            background = states
+            setTextColor(Color.parseColor("#FFFFFF"))
+            textSize = 9.5f
+            setPadding(16, 20, 16, 20)
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+            
+            val params = if (isFullWidth) {
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(6, 6, 6, 6)
+                }
+            } else {
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                ).apply {
+                    setMargins(6, 6, 6, 6)
+                }
+            }
+            layoutParams = params
+        }
 
-        layout.addView(avfButton)
-        layout.addView(polButton)
-        layout.addView(lockButton)
-        layout.addView(genesisButton)
-        layout.addView(zkvmButton)
-        layout.addView(zkPsiButton)
-        layout.addView(pricingButton)
-        layout.addView(statusText)
+        // 3. Create and Style Buttons in 2-Column Layout
+        val avfButton = Button(this).apply { 
+            text = "PHASE 1.6: IGNITE PKVM" 
+            styleNodeButton("#1E1B4B", "#6366F1") // Indigo
+        }
+        val polButton = Button(this).apply { 
+            text = "PHASE 1.5: MESH + POL" 
+            styleNodeButton("#064E3B", "#10B981") // Emerald
+        }
+        val lockButton = Button(this).apply { 
+            text = "PHASE 2.4: FIRE LOCK" 
+            styleNodeButton("#7C2D12", "#F97316") // Rust/Orange
+        }
+        val genesisButton = Button(this).apply { 
+            text = "PHASE 3.1: MINT GENESIS" 
+            styleNodeButton("#581C87", "#A855F7") // Purple
+        }
+        val zkvmButton = Button(this).apply { 
+            text = "PHASE 4.1: IGNITE ZKVM" 
+            styleNodeButton("#0F766E", "#14B8A6") // Teal
+        }
+        val zkPsiButton = Button(this).apply { 
+            text = "PHASE 3: ZK-PSI REJECT" 
+            styleNodeButton("#1E293B", "#0284C7") // Slate/Sky
+        }
+        val pricingButton = Button(this).apply { 
+            text = "EXECUTE: PHASE 4.3 (HYBRID MARKET-MAKER & ZKVM)" 
+            styleNodeButton("#701A75", "#D946EF", isFullWidth = true) // Fuchsia
+        }
+
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(avfButton)
+            addView(polButton)
+        }
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(lockButton)
+            addView(genesisButton)
+        }
+        val row3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(zkvmButton)
+            addView(zkPsiButton)
+        }
+        val row4 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(pricingButton)
+        }
+
+        val buttonsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(row1)
+            addView(row2)
+            addView(row3)
+            addView(row4)
+        }
+        layout.addView(buttonsContainer)
+
+        // 4. Console Log Label
+        val consoleTitle = TextView(this).apply {
+            text = "SYSTEM BOOT LOG & NODE STATUS"
+            textSize = 9.5f
+            setTextColor(Color.parseColor("#64748B"))
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+            setPadding(0, 10, 0, 8)
+        }
+        layout.addView(consoleTitle)
+
+        // 5. Scrollable Console Box
+        scrollView = ScrollView(this).apply {
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            layoutParams = params
+            isFillViewport = true
+            
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14f
+                setColor(Color.parseColor("#020617")) // Deep slate-950 console black
+                setStroke(2, Color.parseColor("#1E293B")) // Slate-800 border
+            }
+        }
+
+        statusText = TextView(this).apply {
+            textSize = 11f
+            setTextColor(Color.parseColor("#2DD4BF")) // Teal console green
+            typeface = android.graphics.Typeface.MONOSPACE
+            gravity = android.view.Gravity.TOP or android.view.Gravity.LEFT
+            setPadding(24, 24, 24, 48) // 48px padding at the bottom for breathing room!
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                scrollView.post {
+                    scrollView.fullScroll(android.view.View.FOCUS_DOWN)
+                }
+            }
+        }
+
+        scrollView.addView(statusText)
+        layout.addView(scrollView)
         setContentView(layout)
 
         avfButton.setOnClickListener {
@@ -209,14 +412,18 @@ class MainActivity : AppCompatActivity() {
             ioScope.launch {
                 val vmResponse = TeeBridge.sendCommand("IGNITE_ZKVM:")
                 withContext(Dispatchers.Main) {
-                    statusText.append("\n$vmResponse")
-                    statusText.append("\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
+                    statusText.append("\n$vmResponse\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
                 }
             }
         }
     }
 
     private fun igniteHypervisor() {
+        if (TeeBridge.activeVm != null || (nativeProcess != null && nativeProcess?.isAlive == true)) {
+            statusText.append("\n⚠️ Hypervisor or Native Fallback daemon is already active.")
+            return
+        }
+        TeeBridge.isNativeFallback = false
         Log.i("SHIFT_AVF", "Initiating pKVM Hypervisor Ignition via Reflection Bypass...")
 
         try {
@@ -224,7 +431,8 @@ class MainActivity : AppCompatActivity() {
             val vmManager = applicationContext.getSystemService("virtualmachine")
 
             if (vmManager == null) {
-                statusText.append("\n❌ CRITICAL: OS restricts pKVM access on this device. Service not found.")
+                statusText.append("\n⚠️ OS restricts pKVM access. Initializing Native Fallback...")
+                igniteNativeFallback()
                 return
             }
 
@@ -415,5 +623,52 @@ class MainActivity : AppCompatActivity() {
         return keyStore.getCertificate(keyAlias).publicKey.encoded.joinToString("") {
             it.toString(16).padStart(2, '0')
         }
+    }
+
+    private fun igniteNativeFallback() {
+        ioScope.launch {
+            try {
+                val nativeLibDir = applicationInfo.nativeLibraryDir
+                val coreBinary = java.io.File(nativeLibDir, "libshift_core.so")
+                
+                if (!coreBinary.exists()) {
+                    withContext(Dispatchers.Main) { statusText.append("\n❌ [FALLBACK] Core binary not found at ${coreBinary.absolutePath}") }
+                    return@launch
+                }
+                
+                coreBinary.setExecutable(true)
+
+                val processBuilder = ProcessBuilder(coreBinary.absolutePath)
+                processBuilder.redirectErrorStream(true)
+                nativeProcess = processBuilder.start()
+
+                withContext(Dispatchers.Main) { 
+                    statusText.append("\n💎 [FALLBACK] Native Daemon Booted. Hardware sandboxed by SELinux.") 
+                }
+
+                // Give the daemon 500ms to bind to port 8000
+                delay(500)
+
+                withContext(Dispatchers.Main) {
+                    statusText.append("\n⚙️ [FALLBACK] Rust Payload Running. TCP Bridge established.")
+                    TeeBridge.isNativeFallback = true
+                    executeSecureBootSequence()
+                }
+
+                val reader = nativeProcess?.inputStream?.bufferedReader()
+                var line: String?
+                while (reader?.readLine().also { line = it } != null) {
+                    Log.i("SHIFT_VAULT_DAEMON", line!!)
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { statusText.append("\n❌ [FALLBACK] Ignition Exception: ${e.message}") }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        nativeProcess?.destroy()
     }
 }

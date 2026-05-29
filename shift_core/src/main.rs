@@ -139,49 +139,61 @@ fn main() {
             .with_tag("SHIFT_VAULT")
     );
 
-    info!("🛡️ [HYPERVISOR] Rust Vault booting in isolated pKVM.");
+    info!("🛡️ [HYPERVISOR] Rust Vault booting...");
     
-    // 1. Create a Virtual Socket (AF_VSOCK) -> returns OwnedFd
-    let fd = socket(AddressFamily::Vsock, SockType::Stream, SockFlag::empty(), None)
-        .expect("Failed to create vsock");
+    // 1. Attempt to create a Virtual Socket (AF_VSOCK)
+    let vsock_result = socket(AddressFamily::Vsock, SockType::Stream, SockFlag::empty(), None)
+        .and_then(|fd| {
+            let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
+            bind(fd.as_raw_fd(), &addr)?;
+            listen(&fd, 10)?;
+            Ok(fd)
+        });
 
-    // 2. Bind to the designated port inside the VM 
-    let addr = VsockAddr::new(VMADDR_CID_ANY, VSOCK_PORT);
-    // bind() takes a RawFd (i32)
-    bind(fd.as_raw_fd(), &addr).expect("Failed to bind vsock port");
-
-    // 3. Listen for incoming connections from the Kotlin OS
-    // listen() takes a reference to something that implements AsFd (like OwnedFd)
-    listen(&fd, 10).expect("Failed to listen on vsock");
-    info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
-
-    // 4. The Event Loop: Process commands from the Android App
-    loop {
-        // accept() takes a RawFd (i32) and returns a RawFd (i32)
-        match accept(fd.as_raw_fd()) {
-            Ok(client_raw_fd) => {
-                info!("🤝 [HYPERVISOR] Kotlin OS connection accepted.");
-                
-                // Directly use the returned RawFd (i32) to build the TCP Stream
-                let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
-                
-                let mut buffer = [0; 8192];
-                if let Ok(bytes_read) = stream.read(&mut buffer) {
-                    if bytes_read > 0 {
-                        let command = String::from_utf8_lossy(&buffer[..bytes_read]).trim().to_string();
-                        info!("⚙️ [HYPERVISOR] Command received: {}", command);
-                        
-                        // Process the command exactly as the old JNI bridge did
-                        let response = process_vault_command(&command);
-                        
-                        let _ = stream.write(response.as_bytes());
+    match vsock_result {
+        Ok(fd) => {
+            info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
+            loop {
+                match accept(fd.as_raw_fd()) {
+                    Ok(client_raw_fd) => {
+                        info!("🤝 [HYPERVISOR] Kotlin OS connection accepted (VSOCK).");
+                        let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
+                        handle_connection(&mut stream);
                     }
+                    Err(e) => error!("❌ [HYPERVISOR] Connection failed: {:?}", e),
                 }
-                let _ = stream.shutdown(Shutdown::Both);
             }
-            Err(e) => error!("❌ [HYPERVISOR] Connection failed: {:?}", e),
+        }
+        Err(e) => {
+            info!("⚠️ [FALLBACK] VSOCK unavailable ({:?}). Binding to TCP 127.0.0.1:8000...", e);
+            let listener = std::net::TcpListener::bind("127.0.0.1:8000").expect("Failed to bind TCP fallback");
+            info!("🎧 [FALLBACK] Vault listening on tcp port 8000...");
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(mut stream) => {
+                        info!("🤝 [FALLBACK] Kotlin OS connection accepted (TCP).");
+                        handle_connection(&mut stream);
+                    }
+                    Err(e) => error!("❌ [FALLBACK] Connection failed: {:?}", e),
+                }
+            }
         }
     }
+}
+
+fn handle_connection(stream: &mut std::net::TcpStream) {
+    let mut buffer = [0; 8192];
+    if let Ok(bytes_read) = stream.read(&mut buffer) {
+        if bytes_read > 0 {
+            let command = String::from_utf8_lossy(&buffer[..bytes_read]).trim().to_string();
+            info!("⚙️ [VAULT] Command received: {}", command);
+            
+            let response = process_vault_command(&command);
+            
+            let _ = stream.write(response.as_bytes());
+        }
+    }
+    let _ = stream.shutdown(Shutdown::Both);
 }
 
 // =========================================================================

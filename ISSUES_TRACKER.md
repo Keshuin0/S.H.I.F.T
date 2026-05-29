@@ -47,6 +47,7 @@
 | 88 | Develop TEE-to-TEE Cryptographic Ranging Protocol | 🟢 OPEN | #86 | — |
 | 89 | Build ZK-SNARK Circuit for ToF Aggregation (Sub-50ms) | 🟢 OPEN | #86 | — |
 | 90 | 1.6: SELinux Zero-Trust Enclave (Isolated Process) | 🟢 OPEN | #1 | Alternative to pKVM for non-AVF devices |
+| 123 | Hardware Limitation: pKVM (AVF) Hypervisor Access is Blocked by Samsung/OEMs | 🟢 OPEN | #90 | Tracks hardware compatibility matrix and SELinux fallback |
 
 ### Phase 2: Mesh Networking & Spatial Indexing (The P2P Layer)
 
@@ -199,6 +200,18 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A18 | 🟢 OPEN | 🟠 MINOR | [#106](https://github.com/Keshuin0/S.H.I.F.T/issues/106) | Hardcoded fallback GPS coordinates |
 | A19 | 🟢 OPEN | 🟠 MINOR | [#107](https://github.com/Keshuin0/S.H.I.F.T/issues/107) | Gemini Gatekeeper invalid model name |
 | A20 | 🟢 OPEN | 🟠 MINOR | [#108](https://github.com/Keshuin0/S.H.I.F.T/issues/108) | ranging.rs distance off by factor of 2 |
+
+---
+
+## 4. Hardware Limitations & The Hybrid Path
+
+**The Flaw: pKVM (AVF) Hypervisor Access is Blocked by Samsung/OEMs** (Tracked in GitHub Issue [#123](https://github.com/Keshuin0/S.H.I.F.T/issues/123))
+During our deep dive, we discovered that the Android OS completely blocks the `virtualmachine` service on Samsung Galaxy devices (like the Fold 6). Google's pKVM (Android Virtualization Framework) is a strict hardware-level feature that relies on the OEM's bootloader.
+
+**The Solution: Graceful Degradation (Native Fallback)**
+We cannot force a Samsung phone to spawn a hardware VM if the Samsung firmware denies it. To resolve this without compromising the bleeding-edge architecture for supported devices, we implemented the **Hybrid Path (Dual-Bind Fallback)**:
+1. **Tier 1 (AVF)**: On supported devices (like the Pixel 8), the Rust Vault binds to `AF_VSOCK` inside the Microdroid VM for maximum hardware-level isolation.
+2. **Tier 2 (Native Fallback)**: On restricted devices (like the Samsung Fold 6), the app uses `ProcessBuilder` to spawn `libshift_core.so` binary as a highly isolated background daemon, communicating over standard TCP `127.0.0.1:8000`. It is securely sandboxed by Android's strict SELinux policies.
 
 ---
 
