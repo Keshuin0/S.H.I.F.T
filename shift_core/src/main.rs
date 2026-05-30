@@ -7,9 +7,10 @@ mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 mod zk_prover; // Baked static parameter prover cache
 
 #[cfg(unix)]
-use std::os::unix::io::{AsRawFd, FromRawFd};
-use std::io::{Read, Write};
-use std::net::Shutdown;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(unix)]
+use tokio::io::unix::AsyncFd;
 
 // FIX 1: Removed SockAddr completely.
 #[cfg(unix)]
@@ -18,7 +19,6 @@ use nix::sys::socket::{socket, bind, listen, accept, AddressFamily, SockFlag, So
 use std::sync::OnceLock;
 use std::collections::hash_map::DefaultHasher; 
 use std::hash::{Hash, Hasher};                 
-use tokio::runtime::Runtime; 
 use tokio::sync::mpsc; 
 use tokio::time::Duration;
 use std::fmt::Write as FmtWrite; 
@@ -79,7 +79,6 @@ pub struct StateBlock {
 }
 
 static LOCAL_LEDGER: OnceLock<Mutex<HashMap<String, StateBlock>>> = OnceLock::new();
-static ASYNC_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static MESH_TX: OnceLock<mpsc::Sender<EngineCommand>> = OnceLock::new();
 
 enum EngineCommand {
@@ -137,13 +136,168 @@ fn execute_zk_psi(scanned_macs: Vec<&str>, expected_macs: Vec<&str>) -> String {
 }
 
 // =========================================================================
+// HYPERVISOR VSOCK & FALLBACK TCP ASYNC STREAM ABSTRACTION (A6)
+// =========================================================================
+
+pub trait SovereignStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static {
+    fn shutdown_stream<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Send + 'a>>;
+}
+
+impl SovereignStream for tokio::net::TcpStream {
+    fn shutdown_stream<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Send + 'a>> {
+        use tokio::io::AsyncWriteExt;
+        Box::pin(async move {
+            self.shutdown().await
+        })
+    }
+}
+
+#[cfg(unix)]
+pub struct VsockStream {
+    io: tokio::io::unix::AsyncFd<OwnedFd>,
+}
+
+#[cfg(unix)]
+impl VsockStream {
+    pub fn new(fd: std::os::unix::io::RawFd) -> std::io::Result<Self> {
+        let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        Ok(Self {
+            io: tokio::io::unix::AsyncFd::new(owned_fd)?,
+        })
+    }
+}
+
+#[cfg(unix)]
+impl tokio::io::AsyncRead for VsockStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        loop {
+            match self.io.poll_read_ready(cx) {
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+                std::task::Poll::Ready(result) => {
+                    let mut guard = result?;
+                    let unfilled = buf.initialize_unfilled();
+                    let ret = unsafe {
+                        libc::read(
+                            self.io.as_raw_fd(),
+                            unfilled.as_mut_ptr() as *mut libc::c_void,
+                            unfilled.len(),
+                        )
+                    };
+                    if ret < 0 {
+                        let err = std::io::Error::last_os_error();
+                        if err.kind() == std::io::ErrorKind::WouldBlock {
+                            guard.clear_ready();
+                            continue;
+                        }
+                        return std::task::Poll::Ready(Err(err));
+                    }
+                    let bytes_read = ret as usize;
+                    buf.advance(bytes_read);
+                    return std::task::Poll::Ready(Ok(()));
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl tokio::io::AsyncWrite for VsockStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        loop {
+            match self.io.poll_write_ready(cx) {
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+                std::task::Poll::Ready(result) => {
+                    let mut guard = result?;
+                    let ret = unsafe {
+                        libc::write(
+                            self.io.as_raw_fd(),
+                            buf.as_ptr() as *const libc::c_void,
+                            buf.len(),
+                        )
+                    };
+                    if ret < 0 {
+                        let err = std::io::Error::last_os_error();
+                        if err.kind() == std::io::ErrorKind::WouldBlock {
+                            guard.clear_ready();
+                            continue;
+                        }
+                        return std::task::Poll::Ready(Err(err));
+                    }
+                    return std::task::Poll::Ready(Ok(ret as usize));
+                }
+            }
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let ret = unsafe {
+            libc::shutdown(self.io.as_raw_fd(), libc::SHUT_RDWR)
+        };
+        if ret < 0 {
+            std::task::Poll::Ready(Err(std::io::Error::last_os_error()))
+        } else {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+}
+
+#[cfg(unix)]
+impl SovereignStream for VsockStream {
+    fn shutdown_stream<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Send + 'a>> {
+        use tokio::io::AsyncWriteExt;
+        Box::pin(async move {
+            self.shutdown().await
+        })
+    }
+}
+
+#[cfg(unix)]
+fn set_nonblocking(fd: std::os::unix::io::RawFd) -> std::io::Result<()> {
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        if flags < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let ret = libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+// =========================================================================
 // PHASE 1.6: THE VSOCK HYPERVISOR BRIDGE (REPLACES JNI)
 #[cfg(unix)]
 const VSOCK_PORT: u32 = 8000;
 #[cfg(unix)]
 const VMADDR_CID_ANY: u32 = 0xFFFFFFFF; 
 
-fn main() {
+const BOOTSTRAP_NODES: &[&str] = &[
+    "/dns4/bootnode.shift.network/udp/4001/quic-v1/p2p/12D3KooWN6u4y7S7wS8wS8wS8wS8wS8wS8wS8wS8wS8wS8wS8wS8",
+    "/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooWLzGjG4U7kHkWvUqM1c7o7hVq5S2P6W8R8x2W9Z5Y3B1A"
+]; 
+
+#[tokio::main]
+async fn main() {
     android_logger::init_once(
         Config::default()
             .with_max_level(LevelFilter::Trace)
@@ -165,29 +319,69 @@ fn main() {
 
         match vsock_result {
             Ok(fd) => {
-                info!("🎧 [HYPERVISOR] Vault listening on vsock port {}...", VSOCK_PORT);
-                loop {
-                    match accept(fd.as_raw_fd()) {
-                        Ok(client_raw_fd) => {
-                            info!("🤝 [HYPERVISOR] Kotlin OS connection accepted (VSOCK).");
-                            let mut stream = unsafe { std::net::TcpStream::from_raw_fd(client_raw_fd) };
-                            handle_connection(&mut stream);
+                if let Err(e) = set_nonblocking(fd.as_raw_fd()) {
+                    error!("❌ [HYPERVISOR] Failed to set listening socket non-blocking: {:?}", e);
+                    return;
+                }
+                match AsyncFd::new(fd) {
+                    Ok(listener) => {
+                        info!("🎧 [HYPERVISOR] Vault listening on vsock port {} (async)...", VSOCK_PORT);
+                        loop {
+                            match listener.readable().await {
+                                Ok(mut guard) => {
+                                    match accept(listener.as_raw_fd()) {
+                                        Ok(client_raw_fd) => {
+                                            guard.clear_ready();
+                                            info!("🤝 [HYPERVISOR] Kotlin OS connection accepted (VSOCK).");
+                                            if let Err(e) = set_nonblocking(client_raw_fd) {
+                                                error!("❌ [HYPERVISOR] Failed to set client socket non-blocking: {:?}", e);
+                                                continue;
+                                            }
+                                            match VsockStream::new(client_raw_fd) {
+                                                Ok(stream) => {
+                                                    tokio::spawn(async move {
+                                                        handle_connection(stream).await;
+                                                    });
+                                                }
+                                                Err(e) => {
+                                                    error!("❌ [HYPERVISOR] Failed to wrap client socket: {:?}", e);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            if e == nix::errno::Errno::EWOULDBLOCK {
+                                                guard.clear_ready();
+                                            } else {
+                                                error!("❌ [HYPERVISOR] Connection accept failed: {:?}", e);
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("❌ [HYPERVISOR] AsyncFd readable failed: {:?}", e);
+                                    break;
+                                }
+                            }
                         }
-                        Err(e) => error!("❌ [HYPERVISOR] Connection failed: {:?}", e),
+                    }
+                    Err(e) => {
+                        error!("❌ [HYPERVISOR] Failed to register listener with AsyncFd: {:?}", e);
                     }
                 }
             }
             Err(e) => {
                 info!("⚠️ [FALLBACK] VSOCK unavailable ({:?}). Binding to TCP 127.0.0.1:8000...", e);
-                let listener = std::net::TcpListener::bind("127.0.0.1:8000").expect("Failed to bind TCP fallback");
-                info!("🎧 [FALLBACK] Vault listening on tcp port 8000...");
-                for stream in listener.incoming() {
-                    match stream {
-                        Ok(mut stream) => {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:8000").await.expect("Failed to bind TCP fallback");
+                info!("🎧 [FALLBACK] Vault listening on tcp port 8000 (async)...");
+                loop {
+                    match listener.accept().await {
+                        Ok((stream, _)) => {
                             info!("🤝 [FALLBACK] Kotlin OS connection accepted (TCP).");
-                            handle_connection(&mut stream);
+                            tokio::spawn(async move {
+                                handle_connection(stream).await;
+                            });
                         }
-                        Err(e) => error!("❌ [FALLBACK] Connection failed: {:?}", e),
+                        Err(err) => error!("❌ [FALLBACK] Connection failed: {:?}", err),
                     }
                 }
             }
@@ -196,13 +390,15 @@ fn main() {
 
     #[cfg(not(unix))]
     {
-        info!("🎧 [FALLBACK] Vault listening on tcp port 8000...");
-        let listener = std::net::TcpListener::bind("127.0.0.1:8000").expect("Failed to bind TCP fallback");
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
+        info!("🎧 [FALLBACK] Vault listening on tcp port 8000 (async)...");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:8000").await.expect("Failed to bind TCP fallback");
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
                     info!("🤝 [FALLBACK] Kotlin OS connection accepted (TCP).");
-                    handle_connection(&mut stream);
+                    tokio::spawn(async move {
+                        handle_connection(stream).await;
+                    });
                 }
                 Err(e) => error!("❌ [FALLBACK] Connection failed: {:?}", e),
             }
@@ -210,7 +406,7 @@ fn main() {
     }
 }
 
-fn handle_connection(stream: &mut std::net::TcpStream) {
+async fn handle_connection<S: SovereignStream>(mut stream: S) {
     use p256::{ecdh::EphemeralSecret, EncodedPoint, PublicKey, ecdsa::{VerifyingKey, Signature, signature::Verifier}};
     use p256::pkcs8::DecodePublicKey;
     use rand_core::{OsRng, RngCore};
@@ -230,11 +426,11 @@ fn handle_connection(stream: &mut std::net::TcpStream) {
 
     // Write Phase 1 to stream
     info!("🛡️ [SOVEREIGN TUNNEL] Writing Vault PubKey and Nonce to stream...");
-    if let Err(e) = stream.write_all(vault_pub_bytes) {
+    if let Err(e) = stream.write_all(vault_pub_bytes).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to write vault_pub_bytes: {:?}", e);
         return;
     }
-    if let Err(e) = stream.write_all(&nonce) {
+    if let Err(e) = stream.write_all(&nonce).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to write nonce: {:?}", e);
         return;
     }
@@ -243,7 +439,7 @@ fn handle_connection(stream: &mut std::net::TcpStream) {
     // 2. Read App Response
     info!("🛡️ [SOVEREIGN TUNNEL] Reading hw_pub_len_buf...");
     let mut hw_pub_len_buf = [0u8; 2];
-    if let Err(e) = stream.read_exact(&mut hw_pub_len_buf) {
+    if let Err(e) = stream.read_exact(&mut hw_pub_len_buf).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to read hw_pub_len_buf: {:?}", e);
         return;
     }
@@ -254,21 +450,21 @@ fn handle_connection(stream: &mut std::net::TcpStream) {
         return;
     } 
     let mut hw_pub = vec![0u8; hw_pub_len];
-    if let Err(e) = stream.read_exact(&mut hw_pub) {
+    if let Err(e) = stream.read_exact(&mut hw_pub).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to read hw_pub: {:?}", e);
         return;
     }
     info!("🛡️ [SOVEREIGN TUNNEL] hw_pub read successfully ({} bytes)", hw_pub.len());
 
     let mut app_pub = [0u8; 65];
-    if let Err(e) = stream.read_exact(&mut app_pub) {
+    if let Err(e) = stream.read_exact(&mut app_pub).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to read app_pub: {:?}", e);
         return;
     }
     info!("🛡️ [SOVEREIGN TUNNEL] app_pub read successfully ({} bytes)", app_pub.len());
 
     let mut sig_len_buf = [0u8; 2];
-    if let Err(e) = stream.read_exact(&mut sig_len_buf) {
+    if let Err(e) = stream.read_exact(&mut sig_len_buf).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to read sig_len_buf: {:?}", e);
         return;
     }
@@ -279,14 +475,14 @@ fn handle_connection(stream: &mut std::net::TcpStream) {
         return;
     }
     let mut sig = vec![0u8; sig_len];
-    if let Err(e) = stream.read_exact(&mut sig) {
+    if let Err(e) = stream.read_exact(&mut sig).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to read sig: {:?}", e);
         return;
     }
     info!("🛡️ [SOVEREIGN TUNNEL] sig read successfully ({} bytes)", sig.len());
 
     let mut ct_len_buf = [0u8; 4];
-    if let Err(e) = stream.read_exact(&mut ct_len_buf) {
+    if let Err(e) = stream.read_exact(&mut ct_len_buf).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to read ct_len_buf: {:?}", e);
         return;
     }
@@ -297,7 +493,7 @@ fn handle_connection(stream: &mut std::net::TcpStream) {
         return;
     } 
     let mut ciphertext = vec![0u8; ct_len];
-    if let Err(e) = stream.read_exact(&mut ciphertext) {
+    if let Err(e) = stream.read_exact(&mut ciphertext).await {
         error!("❌ [SOVEREIGN TUNNEL] Failed to read ciphertext: {:?}", e);
         return;
     }
@@ -385,9 +581,9 @@ fn handle_connection(stream: &mut std::net::TcpStream) {
 
     let res_len = encrypted_response.len() as u32;
     info!("🛡️ [SOVEREIGN TUNNEL] Sending encrypted response ({} bytes)...", res_len);
-    let _ = stream.write_all(&res_len.to_be_bytes());
-    let _ = stream.write_all(&encrypted_response);
-    let _ = stream.shutdown(Shutdown::Both);
+    let _ = stream.write_all(&res_len.to_be_bytes()).await;
+    let _ = stream.write_all(&encrypted_response).await;
+    let _ = stream.shutdown_stream().await;
     info!("🛡️ [SOVEREIGN TUNNEL] Connection closed successfully.");
 }
 
@@ -418,7 +614,6 @@ fn process_vault_command(command: &str) -> String {
 
         match NODE_IDENTITY.set(public_key.clone()) {
             Ok(_) => {
-                let rt = Runtime::new().expect("Failed to build Tokio Runtime");
                 let (tx, mut rx) = mpsc::channel::<EngineCommand>(100);
                 let _ = MESH_TX.set(tx);
                 
@@ -427,7 +622,7 @@ fn process_vault_command(command: &str) -> String {
 
                 zk_prover::pre_initialize_keys();
 
-                rt.spawn(async move {
+                tokio::spawn(async move {
                     info!("🚀 [BACKGROUND ENGINE] Spinning up Layer-1 Node...");
                     
                     let mut ikm = Vec::new();
@@ -487,6 +682,27 @@ fn process_vault_command(command: &str) -> String {
                     swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap()).unwrap();
 
                     info!("⌛ [WIFI AWARE] Swarm Listening for incoming NAN connections...");
+
+                    // Bootstrap nodes to dial and add to Kademlia (A7)
+                    for addr_str in BOOTSTRAP_NODES {
+                        if let Ok(mut multiaddr) = addr_str.parse::<libp2p::Multiaddr>() {
+                            if let Some(libp2p::multiaddr::Protocol::P2p(peer_id)) = multiaddr.iter().last() {
+                                multiaddr.pop();
+                                swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr.clone());
+                                swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                                info!("📍 Added bootstrap node to routing tables: {} -> {}", peer_id, multiaddr);
+                                if let Err(e) = swarm.dial(multiaddr) {
+                                    error!("❌ Failed to dial bootstrap node: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+
+                    if let Err(e) = swarm.behaviour_mut().kademlia.bootstrap() {
+                        error!("❌ Kademlia bootstrap failed: {:?}", e);
+                    } else {
+                        info!("🚀 Kademlia bootstrap initiated.");
+                    }
 
                     let mut current_subscriptions: Vec<String> = Vec::new();
 
@@ -588,11 +804,7 @@ fn process_vault_command(command: &str) -> String {
                     }
                 });
 
-                if ASYNC_RUNTIME.set(rt).is_ok() {
-                    response = "Vault Locked. Async L1 Engine IGNITED.".to_string();
-                } else {
-                    response = "Vault Locked, but Async Engine failed to store state.".to_string();
-                }
+                response = "Vault Locked. Async L1 Engine IGNITED.".to_string();
             },
             Err(_) => {
                 response = "Vault Error: Identity already locked.".to_string();

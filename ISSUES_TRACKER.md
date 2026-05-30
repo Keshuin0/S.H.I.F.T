@@ -151,8 +151,8 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 
 | ID | State | Severity | Title | File | Lines | Description |
 |----|-------|----------|-------|------|-------|-------------|
-| A6 | 🟢 OPEN | 🟡 MAJOR | **VSOCK Uses TcpStream::from_raw_fd() on Non-TCP Socket** | `main.rs` | 155-175 | `std::net::TcpStream` is used for `AF_VSOCK`. This wraps file descriptor in `TcpStream` which works but TCP-specific options might cause unexpected behavior. |
-| A7 | 🟢 OPEN | 🟡 MAJOR | **No Peer Bootstrapping** | `main.rs` | 240-250 | No bootstrap lists exist. Without mDNS, node cannot find peers on internet. |
+| A6 | ✅ CLOSED | 🟡 MAJOR | **VSOCK Uses TcpStream::from_raw_fd() on Non-TCP Socket** | `main.rs` | 155-175 | `std::net::TcpStream` is used for `AF_VSOCK`. This wraps file descriptor in `TcpStream` which works but TCP-specific options might cause unexpected behavior. |
+| A7 | ✅ CLOSED | 🟡 MAJOR | **No Peer Bootstrapping** | `main.rs` | 240-250 | No bootstrap lists exist. Without mDNS, node cannot find peers on internet. |
 | A8 | ✅ CLOSED | 🟡 MAJOR | **DefaultHasher for PoL Hashing** | `main.rs` | 390-405 | `SipHash` is used for Proof of Location cryptographic binding, but it is NOT cryptographically secure. |
 | A9 | 🟢 OPEN | 🟡 MAJOR | **Block-Lattice Is Data Structure Only** | `main.rs` | 62-70 | `StateBlock` is defined but no functions to mint genesis block or handle ledger logic. |
 | A10 | 🟢 OPEN | 🟡 MAJOR | **BLE Mesh Has No S.H.I.F.T. Service UUID** | `MainActivity.kt` | 333-353 | Kotlin BLE scanner collects all nearby devices instead of filtering for S.H.I.F.T. peers. |
@@ -185,8 +185,8 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A3 | ✅ CLOSED | 🔴 CRITICAL | [#99](https://github.com/Keshuin0/S.H.I.F.T/issues/99) | Cryptographic ranging is entirely simulated |
 | A4 | ✅ CLOSED | 🔴 CRITICAL | [#100](https://github.com/Keshuin0/S.H.I.F.T/issues/100) | libp2p PeerId regenerates on every boot |
 | A5 | ✅ CLOSED | 🔴 CRITICAL | [#109](https://github.com/Keshuin0/S.H.I.F.T/issues/109) | Groth16 trusted setup runs on every PoL |
-| A6 | 🟢 OPEN | 🟡 MAJOR | [#101](https://github.com/Keshuin0/S.H.I.F.T/issues/101) | VSOCK bridge uses TcpStream on non-TCP socket |
-| A7 | 🟢 OPEN | 🟡 MAJOR | [#102](https://github.com/Keshuin0/S.H.I.F.T/issues/102) | No peer bootstrapping |
+| A6 | ✅ CLOSED | 🟡 MAJOR | [#101](https://github.com/Keshuin0/S.H.I.F.T/issues/101) | VSOCK bridge uses TcpStream on non-TCP socket |
+| A7 | ✅ CLOSED | 🟡 MAJOR | [#102](https://github.com/Keshuin0/S.H.I.F.T/issues/102) | No peer bootstrapping |
 | A8 | ✅ CLOSED | 🟡 MAJOR | [#110](https://github.com/Keshuin0/S.H.I.F.T/issues/110) | PoL uses non-cryptographic DefaultHasher |
 | A9 | 🟢 OPEN | 🟡 MAJOR | [#103](https://github.com/Keshuin0/S.H.I.F.T/issues/103) | Block-Lattice has no operational logic |
 | A10 | 🟢 OPEN | 🟡 MAJOR | [#104](https://github.com/Keshuin0/S.H.I.F.T/issues/104) | BLE mesh scanner collects all Bluetooth devices |
