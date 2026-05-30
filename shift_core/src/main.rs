@@ -973,7 +973,7 @@ fn process_vault_command(command: &str) -> String {
                 
                 let mut ledger = ledger::get_ledger().lock().unwrap();
                 genesis_block.signature = hex::encode(dummy_hash);
-                ledger.entry(identity.clone()).or_insert_with(Vec::new).push(genesis_block.clone());
+                ledger.entry(identity.clone()).or_default().push(genesis_block.clone());
                 info!("⚠️ [BLOCK-LATTICE] Legacy Genesis block minted via authenticated Sovereign Tunnel bypass.");
                 
                 if let Some(tx) = MESH_TX.get() {
