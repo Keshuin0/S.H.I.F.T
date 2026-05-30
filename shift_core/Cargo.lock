@@ -3018,6 +3018,7 @@ dependencies = [
  "arrayvec",
  "h3o",
  "hex",
+ "hkdf",
  "jni",
  "libc",
  "libp2p",

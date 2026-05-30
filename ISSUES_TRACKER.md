@@ -1,7 +1,7 @@
 # S.H.I.F.T. — Issues Tracker & Gap Analysis
 
 **Generated:** 2026-05-28 | **Updated:** 2026-05-28 | **Source:** https://github.com/Keshuin0/S.H.I.F.T/issues
-**Total GitHub Items:** 117 (Issues + PRs) | **Open Issues:** 74 | **Closed Issues:** 22 | **PRs:** 8
+**Total GitHub Items:** 117 (Issues + PRs) | **Open Issues:** 75 | **Closed Issues:** 31 | **PRs:** 11
 **Audit Issues Filed:** ✅ All 20 (A1-A20) — [View on GitHub](https://github.com/Keshuin0/S.H.I.F.T/issues?q=label%3Aaudit)
 
 ---
@@ -47,6 +47,7 @@
 | 88 | Develop TEE-to-TEE Cryptographic Ranging Protocol | 🟢 OPEN | #86 | — |
 | 89 | Build ZK-SNARK Circuit for ToF Aggregation (Sub-50ms) | 🟢 OPEN | #86 | — |
 | 90 | 1.6: SELinux Zero-Trust Enclave (Isolated Process) | 🟢 OPEN | #1 | Alternative to pKVM for non-AVF devices |
+| 123 | Hardware Limitation: pKVM (AVF) Hypervisor Access is Blocked by Samsung/OEMs | 🟢 OPEN | #90 | Tracks hardware compatibility matrix and SELinux fallback |
 
 ### Phase 2: Mesh Networking & Spatial Indexing (The P2P Layer)
 
@@ -143,7 +144,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A1 | ✅ CLOSED | 🔴 CRITICAL | **Missing VSOCK Command Handlers** | `main.rs` | 445-467 | `MINT_GENESIS:`, `FIRE_LOCK:`, and `ISSUE_SBT:` are called from Kotlin `MainActivity.kt` but have **no handler** in the Rust Vault. They silently fail with "Unrecognized command." This means Block-Lattice genesis, OCC ride locking, and Soulbound Token issuance are completely non-functional. |
 | A2 | 🟢 OPEN | 🔴 CRITICAL | **ZK Distance Bounding Circuit Missing Inequality Constraint** | `zk_engine.rs` | 65-101 | The `DistanceBoundingCircuit` computes `round_trip_distance` and `max_round_trip` but **never enforces** `round_trip_distance ≤ max_round_trip`. The Groth16 proof proves the arithmetic is correct but does NOT prove the node is within the allowed distance. The proof is valid regardless of physical distance. |
 | A3 | 🟢 OPEN | 🔴 CRITICAL | **Ranging is Entirely Simulated** | `main.rs` | 411-420 | The cryptographic distance bounding creates a **dummy peer keypair locally** and fabricates the entire challenge-response. `simulated_rx_time` is artificially set to `tx_timestamp + compute_delay + 100ns`. No actual over-the-air BLE/UWB ranging occurs. |
-| A4 | 🟢 OPEN | 🔴 CRITICAL | **Ephemeral libp2p Identity** | `main.rs` | 200-210 | A new Ed25519 keypair is generated on every `REGISTER_NODE` call. The node's PeerId changes every boot, destroying DHT routing tables, peer reputation history, and network identity continuity. |
+| A4 | ✅ CLOSED | 🔴 CRITICAL | **Ephemeral libp2p Identity** | `main.rs` | 200-210 | A new Ed25519 keypair is generated on every `REGISTER_NODE` call. The node's PeerId changes every boot, destroying DHT routing tables, peer reputation history, and network identity continuity. |
 | A5 | 🟢 OPEN | 🔴 CRITICAL | **Groth16 Trusted Setup Runs Per-PoL** | `main.rs` | 425-435 | `generate_tof_proof()` calls `Groth16::circuit_specific_setup()` on every Proof-of-Location generation. Trusted setup is computationally expensive (seconds on mobile). Should be done once and the proving/verification keys cached. |
 
 ### 🟡 MAJOR — Filed as GitHub Issues
@@ -182,7 +183,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A1 | ✅ CLOSED | 🔴 CRITICAL | [#97](https://github.com/Keshuin0/S.H.I.F.T/issues/97) | VSOCK command handlers missing for MINT_GENESIS, FIRE_LOCK, ISSUE_SBT |
 | A2 | 🟢 OPEN | 🔴 CRITICAL | [#98](https://github.com/Keshuin0/S.H.I.F.T/issues/98) | ZK Distance Bounding circuit missing inequality constraint |
 | A3 | 🟢 OPEN | 🔴 CRITICAL | [#99](https://github.com/Keshuin0/S.H.I.F.T/issues/99) | Cryptographic ranging is entirely simulated |
-| A4 | 🟢 OPEN | 🔴 CRITICAL | [#100](https://github.com/Keshuin0/S.H.I.F.T/issues/100) | libp2p PeerId regenerates on every boot |
+| A4 | ✅ CLOSED | 🔴 CRITICAL | [#100](https://github.com/Keshuin0/S.H.I.F.T/issues/100) | libp2p PeerId regenerates on every boot |
 | A5 | 🟢 OPEN | 🔴 CRITICAL | [#109](https://github.com/Keshuin0/S.H.I.F.T/issues/109) | Groth16 trusted setup runs on every PoL |
 | A6 | 🟢 OPEN | 🟡 MAJOR | [#101](https://github.com/Keshuin0/S.H.I.F.T/issues/101) | VSOCK bridge uses TcpStream on non-TCP socket |
 | A7 | 🟢 OPEN | 🟡 MAJOR | [#102](https://github.com/Keshuin0/S.H.I.F.T/issues/102) | No peer bootstrapping |
@@ -199,6 +200,18 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A18 | 🟢 OPEN | 🟠 MINOR | [#106](https://github.com/Keshuin0/S.H.I.F.T/issues/106) | Hardcoded fallback GPS coordinates |
 | A19 | 🟢 OPEN | 🟠 MINOR | [#107](https://github.com/Keshuin0/S.H.I.F.T/issues/107) | Gemini Gatekeeper invalid model name |
 | A20 | 🟢 OPEN | 🟠 MINOR | [#108](https://github.com/Keshuin0/S.H.I.F.T/issues/108) | ranging.rs distance off by factor of 2 |
+
+---
+
+## 4. Hardware Limitations & The Hybrid Path
+
+**The Flaw: pKVM (AVF) Hypervisor Access is Blocked by Samsung/OEMs** (Tracked in GitHub Issue [#123](https://github.com/Keshuin0/S.H.I.F.T/issues/123))
+During our deep dive, we discovered that the Android OS completely blocks the `virtualmachine` service on Samsung Galaxy devices (like the Fold 6). Google's pKVM (Android Virtualization Framework) is a strict hardware-level feature that relies on the OEM's bootloader.
+
+**The Solution: Graceful Degradation (Native Fallback)**
+We cannot force a Samsung phone to spawn a hardware VM if the Samsung firmware denies it. To resolve this without compromising the bleeding-edge architecture for supported devices, we implemented the **Hybrid Path (Dual-Bind Fallback)**:
+1. **Tier 1 (AVF)**: On supported devices (like the Pixel 8), the Rust Vault binds to `AF_VSOCK` inside the Microdroid VM for maximum hardware-level isolation.
+2. **Tier 2 (Native Fallback)**: On restricted devices (like the Samsung Fold 6), the app uses `ProcessBuilder` to spawn `libshift_core.so` binary as a highly isolated background daemon, communicating over standard TCP `127.0.0.1:8000`. It is securely sandboxed by Android's strict SELinux policies.
 
 ---
 

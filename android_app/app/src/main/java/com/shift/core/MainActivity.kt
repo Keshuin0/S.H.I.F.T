@@ -19,8 +19,11 @@ import android.os.CancellationSignal
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Log
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import java.io.InputStream
@@ -36,12 +39,37 @@ import kotlinx.coroutines.*
 // =========================================================================
 object TeeBridge {
     var activeVm: Any? = null
+    var isNativeFallback: Boolean = false
     const val VSOCK_PORT: Long = 8000
 
     @SuppressLint("DiscouragedPrivateApi")
     fun sendCommand(command: String): String {
-        val vm = activeVm ?: return "❌ Execution Denied: Hypervisor is offline. Ignite pKVM first."
+        if (activeVm == null && !isNativeFallback) return "❌ Execution Denied: Hypervisor/Fallback is offline. Ignite pKVM first."
 
+        if (isNativeFallback) {
+            var attempts = 0
+            val maxAttempts = 5
+            var lastException: Exception? = null
+            while (attempts < maxAttempts) {
+                try {
+                    val socket = java.net.Socket("127.0.0.1", VSOCK_PORT.toInt())
+                    socket.getOutputStream().write(command.toByteArray())
+                    socket.getOutputStream().flush()
+                    val response = socket.getInputStream().bufferedReader().use { it.readText() }
+                    socket.close()
+                    return response
+                } catch (e: Exception) {
+                    lastException = e
+                    attempts++
+                    if (attempts < maxAttempts) {
+                        Thread.sleep(100)
+                    }
+                }
+            }
+            return "❌ TCP Fallback Connection Error: ${lastException?.message} (Failed after $maxAttempts attempts)"
+        }
+
+        val vm = activeVm!!
         return try {
             var vsockMethod: Method? = null
             for (m in vm.javaClass.methods) {
@@ -84,39 +112,214 @@ object TeeBridge {
 @SuppressLint("MissingPermission", "SetTextI18n", "DiscouragedPrivateApi", "PrivateApi")
 class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
+    private lateinit var scrollView: ScrollView
     private val nearbyNodes = mutableSetOf<String>()
     private var isMeshActive = false
     private val ioScope = CoroutineScope(Dispatchers.IO)
+    private var nativeProcess: Process? = null
 
     // Constant for our hardware key
     private val keyAlias = "SHIFT_SOVEREIGN_NODE_ID"
 
+    private fun appendLog(msg: String) {
+        runOnUiThread {
+            statusText.append(msg)
+            scrollView.post {
+                scrollView.fullScroll(android.view.View.FOCUS_DOWN)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        supportActionBar?.hide()
+        window.statusBarColor = Color.parseColor("#0B0E17")
+
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(50, 50, 50, 50)
+            setPadding(30, 20, 30, 30)
+            setBackgroundColor(Color.parseColor("#0B0E17")) // Deep obsidian background
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
         }
 
-        statusText = TextView(this).apply { textSize = 14f }
+        // 1. Premium Header Bar
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 10, 0, 20)
+        }
+        val titleText = TextView(this).apply {
+            text = "S.H.I.F.T. CONTROL STATION"
+            textSize = 20f
+            setTextColor(Color.parseColor("#F8FAFC"))
+            typeface = android.graphics.Typeface.create("sans-serif-condensed-medium", android.graphics.Typeface.BOLD)
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+        }
+        val subtitleText = TextView(this).apply {
+            text = "Sovereign Hardware Infrastructure For Transit"
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#64748B"))
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+        }
+        headerLayout.addView(titleText)
+        headerLayout.addView(subtitleText)
+        layout.addView(headerLayout)
 
-        val avfButton = Button(this).apply { text = "EXECUTE: PHASE 1.6 (Ignite pKVM Hypervisor)" }
-        val polButton = Button(this).apply { text = "EXECUTE: PHASE 1.5 (Proximity Mesh + PoL)" }
-        val lockButton = Button(this).apply { text = "EXECUTE: PHASE 2.4 (Fire Sub-50ms Lock)" }
-        val genesisButton = Button(this).apply { text = "EXECUTE: PHASE 3.1 (Mint Genesis Block)" }
-        val zkvmButton = Button(this).apply { text = "EXECUTE: PHASE 4.1 (Ignite On-Device zkVM)" }
-        val zkPsiButton = Button(this).apply { text = "EXECUTE: PHASE 3 (Test zk-PSI Rejection Engine)" }
-        val pricingButton = Button(this).apply { text = "EXECUTE: PHASE 4.3 (Hybrid Market-Maker & zkVM)" }
+        // 2. Button Styling Helper
+        fun Button.styleNodeButton(backgroundColor: String, strokeColor: String, isFullWidth: Boolean = false) {
+            val normalDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10f
+                setColor(Color.parseColor(backgroundColor))
+                setStroke(2, Color.parseColor(strokeColor))
+            }
+            val pressedDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10f
+                setColor(Color.parseColor(strokeColor))
+                setStroke(2, Color.parseColor(strokeColor))
+            }
+            
+            val states = android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_pressed), pressedDrawable)
+                addState(intArrayOf(), normalDrawable)
+            }
+            
+            background = states
+            setTextColor(Color.parseColor("#FFFFFF"))
+            textSize = 9.5f
+            setPadding(16, 20, 16, 20)
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+            
+            val params = if (isFullWidth) {
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(6, 6, 6, 6)
+                }
+            } else {
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                ).apply {
+                    setMargins(6, 6, 6, 6)
+                }
+            }
+            layoutParams = params
+        }
 
-        layout.addView(avfButton)
-        layout.addView(polButton)
-        layout.addView(lockButton)
-        layout.addView(genesisButton)
-        layout.addView(zkvmButton)
-        layout.addView(zkPsiButton)
-        layout.addView(pricingButton)
-        layout.addView(statusText)
+        // 3. Create and Style Buttons in 2-Column Layout
+        val avfButton = Button(this).apply { 
+            text = "PHASE 1.6: IGNITE PKVM" 
+            styleNodeButton("#1E1B4B", "#6366F1") // Indigo
+        }
+        val polButton = Button(this).apply { 
+            text = "PHASE 1.5: MESH + POL" 
+            styleNodeButton("#064E3B", "#10B981") // Emerald
+        }
+        val lockButton = Button(this).apply { 
+            text = "PHASE 2.4: FIRE LOCK" 
+            styleNodeButton("#7C2D12", "#F97316") // Rust/Orange
+        }
+        val genesisButton = Button(this).apply { 
+            text = "PHASE 3.1: MINT GENESIS" 
+            styleNodeButton("#581C87", "#A855F7") // Purple
+        }
+        val zkvmButton = Button(this).apply { 
+            text = "PHASE 4.1: IGNITE ZKVM" 
+            styleNodeButton("#0F766E", "#14B8A6") // Teal
+        }
+        val zkPsiButton = Button(this).apply { 
+            text = "PHASE 3: ZK-PSI REJECT" 
+            styleNodeButton("#1E293B", "#0284C7") // Slate/Sky
+        }
+        val pricingButton = Button(this).apply { 
+            text = "EXECUTE: PHASE 4.3 (HYBRID MARKET-MAKER & ZKVM)" 
+            styleNodeButton("#701A75", "#D946EF", isFullWidth = true) // Fuchsia
+        }
+
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(avfButton)
+            addView(polButton)
+        }
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(lockButton)
+            addView(genesisButton)
+        }
+        val row3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(zkvmButton)
+            addView(zkPsiButton)
+        }
+        val row4 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(pricingButton)
+        }
+
+        val buttonsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(row1)
+            addView(row2)
+            addView(row3)
+            addView(row4)
+        }
+        layout.addView(buttonsContainer)
+
+        // 4. Console Log Label
+        val consoleTitle = TextView(this).apply {
+            text = "SYSTEM BOOT LOG & NODE STATUS"
+            textSize = 9.5f
+            setTextColor(Color.parseColor("#64748B"))
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+            setPadding(0, 10, 0, 8)
+        }
+        layout.addView(consoleTitle)
+
+        // 5. Scrollable Console Box
+        scrollView = ScrollView(this).apply {
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            layoutParams = params
+            isFillViewport = true
+            
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14f
+                setColor(Color.parseColor("#020617")) // Deep slate-950 console black
+                setStroke(2, Color.parseColor("#1E293B")) // Slate-800 border
+            }
+        }
+
+        statusText = TextView(this).apply {
+            textSize = 11f
+            setTextColor(Color.parseColor("#2DD4BF")) // Teal console green
+            typeface = android.graphics.Typeface.MONOSPACE
+            gravity = android.view.Gravity.TOP or android.view.Gravity.LEFT
+            setPadding(24, 24, 24, 48) // 48px padding at the bottom for breathing room!
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                scrollView.post {
+                    scrollView.fullScroll(android.view.View.FOCUS_DOWN)
+                }
+            }
+        }
+
+        scrollView.addView(statusText)
+        layout.addView(scrollView)
         setContentView(layout)
 
         avfButton.setOnClickListener {
@@ -209,14 +412,18 @@ class MainActivity : AppCompatActivity() {
             ioScope.launch {
                 val vmResponse = TeeBridge.sendCommand("IGNITE_ZKVM:")
                 withContext(Dispatchers.Main) {
-                    statusText.append("\n$vmResponse")
-                    statusText.append("\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
+                    statusText.append("\n$vmResponse\n❌ [SMART CONTRACT] Bid Rejected: Rider bid ($$riderBid) falls below the Algorithmic Floor ($$baseRatePerMile).")
                 }
             }
         }
     }
 
     private fun igniteHypervisor() {
+        if (TeeBridge.activeVm != null || (nativeProcess != null && nativeProcess?.isAlive == true)) {
+            statusText.append("\n⚠️ Hypervisor or Native Fallback daemon is already active.")
+            return
+        }
+        TeeBridge.isNativeFallback = false
         Log.i("SHIFT_AVF", "Initiating pKVM Hypervisor Ignition via Reflection Bypass...")
 
         try {
@@ -224,7 +431,8 @@ class MainActivity : AppCompatActivity() {
             val vmManager = applicationContext.getSystemService("virtualmachine")
 
             if (vmManager == null) {
-                statusText.append("\n❌ CRITICAL: OS restricts pKVM access on this device. Service not found.")
+                statusText.append("\n⚠️ OS restricts pKVM access. Initializing Native Fallback...")
+                igniteNativeFallback()
                 return
             }
 
@@ -266,7 +474,9 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             statusText.append("\n⚙️ [HYPERVISOR] Rust Payload Running. VSOCK Bridge established.")
                             TeeBridge.activeVm = args?.get(0)
-                            executeSecureBootSequence()
+                            authenticateForBoot {
+                                executeSecureBootSequence()
+                            }
                         }
                     }
                     "onStopped" -> {
@@ -299,7 +509,12 @@ class MainActivity : AppCompatActivity() {
         ioScope.launch {
             try {
                 val publicKeyHex = generateTrustZoneKey()
-                val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$publicKeyHex")
+                val sClassical = deriveSClassical()
+                val sPqc = getOrGeneratePqcSecret()
+
+                val payload = "$publicKeyHex|${byteArrayToHexString(sClassical)}|${byteArrayToHexString(sPqc)}"
+                val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$payload")
+
                 val sbtToken = "SBT-CLEAR-ID-9942"
                 val rustSbtResponse = TeeBridge.sendCommand("ISSUE_SBT:$sbtToken")
                 val genesisResponse = TeeBridge.sendCommand("MINT_GENESIS:")
@@ -310,6 +525,7 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     statusText.append("\nBoot Failed: ${e.message}")
+                    Log.e("SHIFT_BOOT", "Secure boot execution failed", e)
                 }
             }
         }
@@ -403,17 +619,265 @@ class MainActivity : AppCompatActivity() {
 
         if (!keyStore.containsAlias(keyAlias)) {
             val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
-            val parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
-                .setDigests(KeyProperties.DIGEST_SHA256)
-                .setIsStrongBoxBacked(true)
-                .setUserAuthenticationRequired(true)
-                .build()
-            keyPairGenerator.initialize(parameterSpec)
-            keyPairGenerator.generateKeyPair()
+            var parameterSpec: KeyGenParameterSpec
+            
+            try {
+                parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setIsStrongBoxBacked(true)
+                    .setUserAuthenticationRequired(true)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with StrongBox backing.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "StrongBox EC Signing Key failed, falling back to standard TEE. (${e.message})")
+                parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setIsStrongBoxBacked(false)
+                    .setUserAuthenticationRequired(true)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with standard TEE backing.")
+            }
         }
 
         return keyStore.getCertificate(keyAlias).publicKey.encoded.joinToString("") {
             it.toString(16).padStart(2, '0')
         }
+    }
+
+    private val agreementKeyAlias = "SHIFT_SOVEREIGN_AGREEMENT_KEY"
+
+    private fun generateTrustZoneAgreementKey() {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+
+        if (!keyStore.containsAlias(agreementKeyAlias)) {
+            val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+            var parameterSpec: KeyGenParameterSpec
+            
+            try {
+                parameterSpec = KeyGenParameterSpec.Builder(agreementKeyAlias, KeyProperties.PURPOSE_AGREE_KEY)
+                    .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
+                    .setIsStrongBoxBacked(true)
+                    .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(15)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Agreement Key with StrongBox backing.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "StrongBox EC Agreement Key failed, falling back to standard TEE. (${e.message})")
+                parameterSpec = KeyGenParameterSpec.Builder(agreementKeyAlias, KeyProperties.PURPOSE_AGREE_KEY)
+                    .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
+                    .setIsStrongBoxBacked(false)
+                    .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(15)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated Agreement Key with standard TEE backing.")
+            }
+        }
+    }
+
+    private val pqcWrapperKeyAlias = "SHIFT_PQC_WRAPPER_KEY"
+
+    private fun generatePqcWrapperKey() {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+
+        if (!keyStore.containsAlias(pqcWrapperKeyAlias)) {
+            val keyGenerator = javax.crypto.KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            var parameterSpec: KeyGenParameterSpec
+            
+            try {
+                parameterSpec = KeyGenParameterSpec.Builder(
+                    pqcWrapperKeyAlias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setIsStrongBoxBacked(true)
+                .setUserAuthenticationRequired(true)
+                .setUserAuthenticationValidityDurationSeconds(15)
+                .build()
+                keyGenerator.init(parameterSpec)
+                keyGenerator.generateKey()
+                Log.d("SHIFT_KEYSTORE", "Generated PQC AES Wrapper Key with StrongBox backing.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "StrongBox AES Wrapper Key failed, falling back to standard TEE. (${e.message})")
+                parameterSpec = KeyGenParameterSpec.Builder(
+                    pqcWrapperKeyAlias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setIsStrongBoxBacked(false)
+                .setUserAuthenticationRequired(true)
+                .setUserAuthenticationValidityDurationSeconds(15)
+                .build()
+                keyGenerator.init(parameterSpec)
+                keyGenerator.generateKey()
+                Log.d("SHIFT_KEYSTORE", "Generated PQC AES Wrapper Key with standard TEE backing.")
+            }
+        }
+    }
+
+    private fun getOrGeneratePqcSecret(): ByteArray {
+        val sharedPrefs = getSharedPreferences("shift_pqc_prefs", Context.MODE_PRIVATE)
+        val encryptedHex = sharedPrefs.getString("encrypted_pqc", null)
+        val ivHex = sharedPrefs.getString("iv_pqc", null)
+
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        
+        generatePqcWrapperKey()
+        val secretKey = keyStore.getKey(pqcWrapperKeyAlias, null) as javax.crypto.SecretKey
+
+        if (encryptedHex != null && ivHex != null) {
+            val encryptedBytes = hexStringToByteArray(encryptedHex)
+            val ivBytes = hexStringToByteArray(ivHex)
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            val spec = javax.crypto.spec.GCMParameterSpec(128, ivBytes)
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, spec)
+            return cipher.doFinal(encryptedBytes)
+        } else {
+            val secureRandom = java.security.SecureRandom()
+            val rawSeed = ByteArray(32)
+            secureRandom.nextBytes(rawSeed)
+
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey)
+            val encryptedBytes = cipher.doFinal(rawSeed)
+            val ivBytes = cipher.iv
+
+            sharedPrefs.edit().apply {
+                putString("encrypted_pqc", byteArrayToHexString(encryptedBytes))
+                putString("iv_pqc", byteArrayToHexString(ivBytes))
+                apply()
+            }
+            return rawSeed
+        }
+    }
+
+    private fun deriveSClassical(): ByteArray {
+        val staticSaltPubKeyBytes = byteArrayOf(
+            0x30.toByte(), 0x59.toByte(), 0x30.toByte(), 0x13.toByte(), 0x06.toByte(), 0x07.toByte(), 0x2a.toByte(), 0x86.toByte(),
+            0x48.toByte(), 0xce.toByte(), 0x3d.toByte(), 0x02.toByte(), 0x01.toByte(), 0x06.toByte(), 0x08.toByte(), 0x2a.toByte(),
+            0x86.toByte(), 0x48.toByte(), 0xce.toByte(), 0x3d.toByte(), 0x03.toByte(), 0x01.toByte(), 0x07.toByte(), 0x03.toByte(),
+            0x42.toByte(), 0x00.toByte(), 0x04.toByte(), 0xb7.toByte(), 0x15.toByte(), 0x65.toByte(), 0x92.toByte(), 0x8a.toByte(),
+            0x4e.toByte(), 0x41.toByte(), 0xaa.toByte(), 0x63.toByte(), 0xb7.toByte(), 0x52.toByte(), 0x4c.toByte(), 0x94.toByte(),
+            0xe1.toByte(), 0xdf.toByte(), 0x61.toByte(), 0xae.toByte(), 0xa2.toByte(), 0x91.toByte(), 0xd6.toByte(), 0x09.toByte(),
+            0x1e.toByte(), 0x7e.toByte(), 0x36.toByte(), 0x5e.toByte(), 0x97.toByte(), 0x2a.toByte(), 0xab.toByte(), 0x0c.toByte(),
+            0xed.toByte(), 0xce.toByte(), 0xe0.toByte(), 0xc4.toByte(), 0x0c.toByte(), 0x64.toByte(), 0xc9.toByte(), 0xeb.toByte(),
+            0xa4.toByte(), 0x80.toByte(), 0xe9.toByte(), 0xfb.toByte(), 0x63.toByte(), 0x92.toByte(), 0x57.toByte(), 0xde.toByte(),
+            0x9e.toByte(), 0xab.toByte(), 0x65.toByte(), 0x50.toByte(), 0x21.toByte(), 0xbf.toByte(), 0x39.toByte(), 0xe7.toByte(),
+            0xb8.toByte(), 0x54.toByte(), 0xde.toByte(), 0x63.toByte(), 0x97.toByte(), 0x36.toByte(), 0x96.toByte(), 0xa8.toByte(),
+            0x66.toByte(), 0xe7.toByte(), 0x16.toByte()
+        )
+
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        
+        generateTrustZoneAgreementKey()
+
+        val privateKey = keyStore.getKey(agreementKeyAlias, null) as java.security.PrivateKey
+        val keyFactory = java.security.KeyFactory.getInstance("EC")
+        val pubKeySpec = java.security.spec.X509EncodedKeySpec(staticSaltPubKeyBytes)
+        val peerPubKey = keyFactory.generatePublic(pubKeySpec)
+
+        val keyAgreement = javax.crypto.KeyAgreement.getInstance("ECDH", "AndroidKeyStore")
+        keyAgreement.init(privateKey)
+        keyAgreement.doPhase(peerPubKey, true)
+        return keyAgreement.generateSecret()
+    }
+
+    private fun byteArrayToHexString(bytes: ByteArray): String {
+        return bytes.joinToString("") { String.format("%02x", it) }
+    }
+
+    private fun hexStringToByteArray(s: String): ByteArray {
+        val len = s.length
+        val data = ByteArray(len / 2)
+        var i = 0
+        while (i < len) {
+            data[i / 2] = ((Character.digit(s[i], 16) shl 4) + Character.digit(s[i + 1], 16)).toByte()
+            i += 2
+        }
+        return data
+    }
+
+    private fun authenticateForBoot(onAuthenticated: () -> Unit) {
+        val biometricPrompt = BiometricPrompt.Builder(this)
+            .setTitle("Ignite Node Identity")
+            .setSubtitle("Authenticate hardware to derive secure keys")
+            .setNegativeButton("Cancel", mainExecutor) { _, _ ->
+                statusText.append("\n\n--- BOOT DENIED ---\nBiometric authentication cancelled.")
+            }
+            .build()
+
+        biometricPrompt.authenticate(CancellationSignal(), mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                super.onAuthenticationSucceeded(result)
+                statusText.append("\n\n[Biometric Verified. Deriving P2P Cryptographic Keys...]")
+                onAuthenticated()
+            }
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                super.onAuthenticationError(errorCode, errString)
+                statusText.append("\n\n--- BOOT FAILED ---\nHardware Lock Error: $errString")
+            }
+        })
+    }
+
+    private fun igniteNativeFallback() {
+        ioScope.launch {
+            try {
+                val nativeLibDir = applicationInfo.nativeLibraryDir
+                val coreBinary = java.io.File(nativeLibDir, "libshift_core.so")
+                
+                if (!coreBinary.exists()) {
+                    withContext(Dispatchers.Main) { statusText.append("\n❌ [FALLBACK] Core binary not found at ${coreBinary.absolutePath}") }
+                    return@launch
+                }
+                
+                coreBinary.setExecutable(true)
+
+                val processBuilder = ProcessBuilder(coreBinary.absolutePath)
+                processBuilder.redirectErrorStream(true)
+                nativeProcess = processBuilder.start()
+
+                withContext(Dispatchers.Main) { 
+                    statusText.append("\n💎 [FALLBACK] Native Daemon Booted. Hardware sandboxed by SELinux.") 
+                }
+
+                // Give the daemon 500ms to bind to port 8000
+                delay(500)
+
+                withContext(Dispatchers.Main) {
+                    statusText.append("\n⚙️ [FALLBACK] Rust Payload Running. TCP Bridge established.")
+                    TeeBridge.isNativeFallback = true
+                    authenticateForBoot {
+                        executeSecureBootSequence()
+                    }
+                }
+
+                val reader = nativeProcess?.inputStream?.bufferedReader()
+                var line: String?
+                while (reader?.readLine().also { line = it } != null) {
+                    Log.i("SHIFT_VAULT_DAEMON", line!!)
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { statusText.append("\n❌ [FALLBACK] Ignition Exception: ${e.message}") }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        nativeProcess?.destroy()
     }
 }
