@@ -154,7 +154,7 @@ pub fn validate_and_process_block(block: &StateBlock) -> Result<(), String> {
 
     // 3. Chain continuity check
     let mut ledger = get_ledger().lock().unwrap();
-    let chain = ledger.entry(block.account.clone()).or_insert_with(Vec::new);
+    let chain = ledger.entry(block.account.clone()).or_default();
 
     if chain.is_empty() {
         if block.previous_hash != "0000000000000000" {
