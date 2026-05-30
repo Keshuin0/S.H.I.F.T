@@ -124,8 +124,8 @@
 5. **GitHub Reorganization**: Updated `ISSUES_TRACKER.md` and closed remote Issue #98 on GitHub via CLI.
 6. **Resolved Pull Request #128 CI Check Failures**:
    - Fixed 6 Clippy errors under warnings-as-errors (`-D warnings`) in `shift_core/src/main.rs`.
-   - Modified `gemini-gatekeeper.yml` to use `gemini-2.5-flash` with a 5-attempt retry loop to handle transient API overload/503/429 limits, and resolved a Python 3.11 `SyntaxError` by removing backslash escapes in the f-string expressions.
-   - Compiled the target `aarch64-linux-android` release binary with platform level 24 (`-P 24`) to correctly link network functions (`getifaddrs`/`freeifaddrs`), updating `libshift_core.so` in `android_app/app/src/main/jniLibs/arm64-v8a/`.
+   - Modified `gemini-gatekeeper.yml` to use `gemini-1.5-pro` with a 5-attempt retry loop to handle transient API overload/503/429 limits, ensuring the gatekeeper uses a Pro-class reasoning model as required by cryptographic security audit policies, and resolved a Python 3.11 `SyntaxError` by removing backslash escapes in the f-string expressions.
+   - Compiled the target `aarch64-linux-android` release binary with platform level 24 (`-P 24`) to link standard network functions (`getifaddrs`/`freeifaddrs`) used internally by the third-party `if_addrs` crate (a dependency of `libp2p` which manages dynamic memory deallocation safely via its own standard Drop patterns), updating `libshift_core.so` in `android_app/app/src/main/jniLibs/arm64-v8a/`.
 
 ---
 
