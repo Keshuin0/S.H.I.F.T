@@ -656,7 +656,7 @@ fn process_vault_command(command: &str) -> String {
                 let hash1 = sha_hasher1.finalize();
 
                 let mut sha_hasher2 = Sha256::new();
-                sha_hasher2.update(&hash1);
+                sha_hasher2.update(hash1);
                 let final_hash = sha_hasher2.finalize();
                 cryptogram = hex::encode(final_hash);
             }

@@ -40,6 +40,7 @@ impl<F: Field> ConstraintSynthesizer<F> for RideCircuit<F> {
 // =========================================================================
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct DistanceBoundingCircuit<F: PrimeField> {
     pub delta_t_nanos: Option<F>,        
     pub t_compute_nanos: Option<F>,      
