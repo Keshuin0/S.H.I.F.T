@@ -63,16 +63,24 @@ jobs:
         {diff}
         '''
 
-        try:
-            # Firing the payload to the developer API endpoint
-            response = client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
-            )
-            review_text = response.text
-        except Exception as e:
-            review_text = f'**REJECT**: Neural Engine Failure during audit. Details: {str(e)}'
-            print('Exception occurred while generating content:', e) 
+        import time
+
+        review_text = None
+        for attempt in range(5):
+            try:
+                # Firing the payload to the developer API endpoint
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt
+                )
+                review_text = response.text
+                break
+            except Exception as e:
+                print(f'Attempt {attempt+1} failed: {e}')
+                if attempt < 4:
+                    time.sleep(5)
+                else:
+                    review_text = f'**REJECT**: Neural Engine Failure during audit. Details: {str(e)}' 
 
         # Fire the audit results back to the GitHub PR
         url = f'https://api.github.com/repos/{os.environ["GITHUB_REPOSITORY"]}/issues/{os.environ["PR_NUMBER"]}/comments'
