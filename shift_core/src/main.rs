@@ -5,6 +5,7 @@
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
 mod zk_prover; // Baked static parameter prover cache
+mod ledger;    // Operational Block-Lattice Ledger
 
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -68,17 +69,8 @@ static SOULBOUND_TOKEN: OnceLock<String> = OnceLock::new();
 static LAMPORT_CLOCK: AtomicU64 = AtomicU64::new(0);
 static ACTIVE_RIDE_LOCKS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
 
-#[derive(Clone, Debug)]
-pub struct StateBlock {
-    pub account: String,           
-    pub previous_hash: String,     
-    pub representative: String,    
-    pub balance: u64,              
-    pub link: String,              
-    pub signature: String,         
-}
-
-static LOCAL_LEDGER: OnceLock<Mutex<HashMap<String, StateBlock>>> = OnceLock::new();
+pub use ledger::StateBlock;
+pub static SESSION_KEYPAIR: OnceLock<libp2p::identity::Keypair> = OnceLock::new();
 static MESH_TX: OnceLock<mpsc::Sender<EngineCommand>> = OnceLock::new();
 
 enum EngineCommand {
@@ -618,7 +610,6 @@ fn process_vault_command(command: &str) -> String {
                 let _ = MESH_TX.set(tx);
                 
                 let _ = ACTIVE_RIDE_LOCKS.set(Mutex::new(HashMap::new()));
-                let _ = LOCAL_LEDGER.set(Mutex::new(HashMap::new()));
 
                 zk_prover::pre_initialize_keys();
 
@@ -637,6 +628,7 @@ fn process_vault_command(command: &str) -> String {
                     let ed25519_secret = identity::ed25519::SecretKey::try_from_bytes(&mut secret_key_bytes)
                         .expect("Failed to construct Ed25519 secret key from derived bytes");
                     let local_key = identity::Keypair::from(identity::ed25519::Keypair::from(ed25519_secret));
+                    let _ = SESSION_KEYPAIR.set(local_key.clone());
                     let local_peer_id = PeerId::from(local_key.public());
                     info!("S.H.I.F.T. Layer-1 Engine Online. Network PeerID: {}", local_peer_id);
 
@@ -954,43 +946,284 @@ fn process_vault_command(command: &str) -> String {
     else if command.starts_with("MINT_GENESIS:") {
         let node_id = NODE_IDENTITY.get();
         if let Some(identity) = node_id {
-            if let Some(ledger_mutex) = LOCAL_LEDGER.get() {
-                let mut ledger = ledger_mutex.lock().unwrap();
+            let genesis_balance: u64 = 1_000_000;
+            
+            {
+                let ledger = ledger::get_ledger().lock().unwrap();
                 if ledger.contains_key(identity) {
-                    response = "Block-Lattice Stable: Genesis already anchored.".to_string();
-                } else {
-                    // TODO: Placeholder genesis balance (1M \u03bcSHIFT) \u2014 see GitHub issue for production tokenomics
-                    let genesis_balance: u64 = 1_000_000;
+                    return "Block-Lattice Stable: Genesis already anchored.".to_string();
+                }
+            }
 
-                    let mut hasher = Sha256::new();
-                    hasher.update(identity.as_bytes());
-                    hasher.update(b"0000000000000000");
-                    hasher.update(b"GENESIS");
-                    hasher.update(genesis_balance.to_be_bytes());
-                    let block_hash = hex::encode(hasher.finalize());
+            let payload = command.replace("MINT_GENESIS:", "").trim().to_string();
+            let mut genesis_block = StateBlock {
+                account: identity.clone(),
+                previous_hash: "0000000000000000".to_string(),
+                representative: identity.clone(),
+                balance: genesis_balance,
+                link: "GENESIS".to_string(),
+                signature: "".to_string(),
+            };
 
-                    let genesis_block = StateBlock {
-                        account: identity.clone(),
-                        previous_hash: "0000000000000000".to_string(),
-                        representative: identity.clone(),
-                        balance: genesis_balance,
-                        link: "GENESIS".to_string(),
-                        signature: block_hash.clone(),
-                    };
-
-                    ledger.insert(identity.clone(), genesis_block);
-                    info!("\u{26d3}\u{fe0f} [BLOCK-LATTICE] Genesis block minted. Hash: {}", &block_hash[..16]);
-
-                    // Broadcast genesis to the network via shift-ledger topic
-                    if let Some(tx) = MESH_TX.get() {
-                        let payload = format!("GENESIS:{}:{}", identity, block_hash);
-                        let _ = tx.try_send(EngineCommand::BroadcastLedger { payload });
+            if payload.is_empty() {
+                let block_payload = ledger::serialize_block_payload(&genesis_block);
+                let mut dummy_hasher = Sha256::new();
+                dummy_hasher.update(&block_payload);
+                let dummy_hash = dummy_hasher.finalize();
+                
+                let mut ledger = ledger::get_ledger().lock().unwrap();
+                genesis_block.signature = hex::encode(dummy_hash);
+                ledger.entry(identity.clone()).or_insert_with(Vec::new).push(genesis_block.clone());
+                info!("⚠️ [BLOCK-LATTICE] Legacy Genesis block minted via authenticated Sovereign Tunnel bypass.");
+                
+                if let Some(tx) = MESH_TX.get() {
+                    let payload_str = format!("GENESIS:{}:{}", identity, genesis_block.signature);
+                    let _ = tx.try_send(EngineCommand::BroadcastLedger { payload: payload_str });
+                }
+                
+                response = format!("🔗 Genesis Block Anchored (Bypass). Balance: {} μSHIFT.", genesis_balance);
+            } else {
+                genesis_block.signature = payload.clone();
+                match ledger::validate_and_process_block(&genesis_block) {
+                    Ok(_) => {
+                        let block_payload = ledger::serialize_block_payload(&genesis_block);
+                        let block_hash = hex::encode(Sha256::digest(&block_payload));
+                        
+                        if let Some(tx) = MESH_TX.get() {
+                            let payload_str = format!("GENESIS:{}:{}", identity, block_hash);
+                            let _ = tx.try_send(EngineCommand::BroadcastLedger { payload: payload_str });
+                        }
+                        response = format!("🔗 Genesis Block Anchored & Verified. Balance: {} μSHIFT.", genesis_balance);
                     }
+                    Err(e) => {
+                        response = format!("Execution Denied: Genesis block validation failed: {}", e);
+                    }
+                }
+            }
+        } else {
+            response = "Execution Denied: Node Identity not found.".to_string();
+        }
+    }
+    else if command.starts_with("DELEGATE_SESSION:") {
+        let node_id = NODE_IDENTITY.get();
+        if let Some(identity) = node_id {
+            let payload = command.replace("DELEGATE_SESSION:", "");
+            let parts: Vec<&str> = payload.split('|').collect();
+            if parts.len() != 5 {
+                return "Execution Denied: Malformed delegate session payload. Expected session_pubkey|expiration|limit|cert_sig|block_sig".to_string();
+            }
+            let session_pubkey = parts[0];
+            let expiration = parts[1];
+            let limit = parts[2];
+            let cert_sig = parts[3];
+            let block_sig = parts[4];
 
-                    response = format!("\u{26d3}\u{fe0f} Genesis Block Anchored. Hash: {}. Balance: {} \u{03bc}SHIFT.", &block_hash[..16], genesis_balance);
+            let delegate_link = format!("DELEGATE:{}|{}|{}|{}", session_pubkey, expiration, limit, cert_sig);
+
+            let current_balance = {
+                let ledger = ledger::get_ledger().lock().unwrap();
+                let chain = match ledger.get(identity) {
+                    Some(c) => c,
+                    None => return "Ledger empty: Open/Genesis block required first.".to_string(),
+                };
+                chain[chain.len() - 1].balance
+            };
+
+            let previous_hash = {
+                let ledger = ledger::get_ledger().lock().unwrap();
+                let chain = ledger.get(identity).unwrap();
+                let last_payload = ledger::serialize_block_payload(&chain[chain.len() - 1]);
+                hex::encode(Sha256::digest(&last_payload))
+            };
+
+            let delegate_block = StateBlock {
+                account: identity.clone(),
+                previous_hash,
+                representative: identity.clone(),
+                balance: current_balance,
+                link: delegate_link,
+                signature: block_sig.to_string(),
+            };
+
+            match ledger::validate_and_process_block(&delegate_block) {
+                Ok(_) => {
+                    response = "✅ Active Session Delegated successfully on-chain.".to_string();
+                }
+                Err(e) => {
+                    response = format!("Execution Denied: Delegation block failed validation: {}", e);
+                }
+            }
+        } else {
+            response = "Execution Denied: Node Identity not found.".to_string();
+        }
+    }
+    else if command.starts_with("SEND_FUNDS:") {
+        let node_id = NODE_IDENTITY.get();
+        if let Some(identity) = node_id {
+            let payload = command.replace("SEND_FUNDS:", "");
+            let parts: Vec<&str> = payload.split('|').collect();
+            if parts.len() < 2 {
+                return "Execution Denied: Malformed send funds payload. Expected recipient|amount|[signature]".to_string();
+            }
+            let recipient = parts[0].to_string();
+            let amount: u64 = match parts[1].parse() {
+                Ok(a) => a,
+                Err(_) => return "Execution Denied: Invalid amount.".to_string(),
+            };
+
+            let current_balance = {
+                let ledger = ledger::get_ledger().lock().unwrap();
+                let chain = match ledger.get(identity) {
+                    Some(c) => c,
+                    None => return "Ledger empty: Open/Genesis block required first.".to_string(),
+                };
+                chain[chain.len() - 1].balance
+            };
+
+            if current_balance < amount {
+                return "Execution Denied: Insufficient balance.".to_string();
+            }
+            let new_balance = current_balance - amount;
+
+            let previous_hash = {
+                let ledger = ledger::get_ledger().lock().unwrap();
+                let chain = ledger.get(identity).unwrap();
+                let last_payload = ledger::serialize_block_payload(&chain[chain.len() - 1]);
+                hex::encode(Sha256::digest(&last_payload))
+            };
+
+            let mut send_block = StateBlock {
+                account: identity.clone(),
+                previous_hash,
+                representative: identity.clone(),
+                balance: new_balance,
+                link: recipient,
+                signature: "".to_string(),
+            };
+
+            if parts.len() == 3 && !parts[2].is_empty() {
+                send_block.signature = parts[2].to_string();
+            } else {
+                let session_key = match SESSION_KEYPAIR.get() {
+                    Some(k) => k,
+                    None => return "Execution Denied: Session key not initialized.".to_string(),
+                };
+                let block_payload = ledger::serialize_block_payload(&send_block);
+                let sig = match session_key.sign(&block_payload) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Execution Denied: Session signing failed: {:?}", e),
+                };
+                send_block.signature = hex::encode(sig);
+            }
+
+            match ledger::validate_and_process_block(&send_block) {
+                Ok(_) => {
+                    let block_payload = ledger::serialize_block_payload(&send_block);
+                    let block_hash = hex::encode(Sha256::digest(&block_payload));
+                    
+                    if let Some(tx) = MESH_TX.get() {
+                        let payload_str = format!("SEND:{}:{}:{}", identity, block_hash, amount);
+                        let _ = tx.try_send(EngineCommand::BroadcastLedger { payload: payload_str });
+                    }
+                    response = format!("✅ Send Block Processed. Hash: {}, Amount: {}", block_hash, amount);
+                }
+                Err(e) => {
+                    response = format!("Execution Denied: Send block failed validation: {}", e);
+                }
+            }
+        } else {
+            response = "Execution Denied: Node Identity not found.".to_string();
+        }
+    }
+    else if command.starts_with("RECEIVE_FUNDS:") {
+        let node_id = NODE_IDENTITY.get();
+        if let Some(identity) = node_id {
+            let send_hash = command.replace("RECEIVE_FUNDS:", "").trim().to_string();
+            if send_hash.is_empty() {
+                return "Execution Denied: Missing send hash.".to_string();
+            }
+
+            let (amount, recipient) = {
+                let pending = ledger::get_pending_receives().lock().unwrap();
+                let (amt, rec) = match pending.get(&send_hash) {
+                    Some(res) => res,
+                    None => return "Execution Denied: No pending send transaction found for this hash.".to_string(),
+                };
+                (*amt, rec.clone())
+            };
+
+            if &recipient != identity {
+                return "Execution Denied: Target recipient does not match identity.".to_string();
+            }
+
+            let current_balance = {
+                let ledger = ledger::get_ledger().lock().unwrap();
+                let chain = match ledger.get(identity) {
+                    Some(c) => c,
+                    None => return "Ledger empty: Open/Genesis block required first.".to_string(),
+                };
+                chain[chain.len() - 1].balance
+            };
+            let new_balance = current_balance + amount;
+
+            let previous_hash = {
+                let ledger = ledger::get_ledger().lock().unwrap();
+                let chain = ledger.get(identity).unwrap();
+                let last_payload = ledger::serialize_block_payload(&chain[chain.len() - 1]);
+                hex::encode(Sha256::digest(&last_payload))
+            };
+
+            let mut receive_block = StateBlock {
+                account: identity.clone(),
+                previous_hash,
+                representative: identity.clone(),
+                balance: new_balance,
+                link: send_hash,
+                signature: "".to_string(),
+            };
+
+            let session_key = match SESSION_KEYPAIR.get() {
+                Some(k) => k,
+                None => return "Execution Denied: Session key not initialized.".to_string(),
+            };
+            let block_payload = ledger::serialize_block_payload(&receive_block);
+            let sig = match session_key.sign(&block_payload) {
+                Ok(s) => s,
+                Err(e) => return format!("Execution Denied: Session signing failed: {:?}", e),
+            };
+            receive_block.signature = hex::encode(sig);
+
+            match ledger::validate_and_process_block(&receive_block) {
+                Ok(_) => {
+                    let block_payload = ledger::serialize_block_payload(&receive_block);
+                    let block_hash = hex::encode(Sha256::digest(&block_payload));
+                    
+                    if let Some(tx) = MESH_TX.get() {
+                        let payload_str = format!("RECEIVE:{}:{}", identity, block_hash);
+                        let _ = tx.try_send(EngineCommand::BroadcastLedger { payload: payload_str });
+                    }
+                    response = format!("✅ Receive Block Processed. Hash: {}, Amount: {}", block_hash, amount);
+                }
+                Err(e) => {
+                    response = format!("Execution Denied: Receive block failed validation: {}", e);
+                }
+            }
+        } else {
+            response = "Execution Denied: Node Identity not found.".to_string();
+        }
+    }
+    else if command.starts_with("GET_BALANCE") {
+        let node_id = NODE_IDENTITY.get();
+        if let Some(identity) = node_id {
+            let ledger = ledger::get_ledger().lock().unwrap();
+            if let Some(chain) = ledger.get(identity) {
+                if !chain.is_empty() {
+                    response = format!("BALANCE:{}", chain[chain.len() - 1].balance);
+                } else {
+                    response = "BALANCE:0".to_string();
                 }
             } else {
-                response = "Execution Denied: Ledger not initialized. Register node first.".to_string();
+                response = "BALANCE:0".to_string();
             }
         } else {
             response = "Execution Denied: Node Identity not found.".to_string();
