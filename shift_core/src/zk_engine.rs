@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use ark_ff::Field;
+use ark_ff::{Field, PrimeField, BigInteger};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError, LinearCombination};
 use ark_std::marker::PhantomData;
 
@@ -39,7 +39,7 @@ impl<F: Field> ConstraintSynthesizer<F> for RideCircuit<F> {
 // =========================================================================
 
 #[derive(Clone)]
-pub struct DistanceBoundingCircuit<F: Field> {
+pub struct DistanceBoundingCircuit<F: PrimeField> {
     pub delta_t_nanos: Option<F>,        
     pub t_compute_nanos: Option<F>,      
     pub speed_of_light_mm_per_ns: Option<F>, 
@@ -47,7 +47,7 @@ pub struct DistanceBoundingCircuit<F: Field> {
     pub _engine: PhantomData<F>,
 }
 
-impl<F: Field> ConstraintSynthesizer<F> for DistanceBoundingCircuit<F> {
+impl<F: PrimeField> ConstraintSynthesizer<F> for DistanceBoundingCircuit<F> {
     fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         let delta_t_var = cs.new_witness_variable(|| self.delta_t_nanos.ok_or(SynthesisError::AssignmentMissing))?;
         let t_compute_var = cs.new_witness_variable(|| self.t_compute_nanos.ok_or(SynthesisError::AssignmentMissing))?;
@@ -84,6 +84,60 @@ impl<F: Field> ConstraintSynthesizer<F> for DistanceBoundingCircuit<F> {
             LinearCombination::from(max_dist_var),
             LinearCombination::from(two_var),
             LinearCombination::from(max_round_trip_var),
+        )?;
+
+        // =========================================================================
+        // PINNACLE OPTIMIZATION: DIFFERENCE RANGE PROOF (DRP)
+        // =========================================================================
+        
+        // 1. Compute algebraic difference variable: diff = max_round_trip - round_trip_dist
+        let diff_val = max_round_trip_val.and_then(|max_rt| {
+            round_trip_dist_val.map(|rt_dist| max_rt - rt_dist)
+        });
+        let diff_var = cs.new_witness_variable(|| diff_val.ok_or(SynthesisError::AssignmentMissing))?;
+
+        cs.enforce_constraint(
+            LinearCombination::from(max_round_trip_var) - round_trip_dist_var,
+            LinearCombination::from((one, ark_relations::r1cs::Variable::One)),
+            LinearCombination::from(diff_var),
+        )?;
+
+        // 2. Proving diff is in [0, 2^32 - 1] via 32-bit decomposition
+        let diff_bits = diff_val.map(|val| {
+            let bigint = val.into_bigint();
+            let mut bits = Vec::with_capacity(32);
+            for i in 0..32 {
+                bits.push(bigint.get_bit(i));
+            }
+            bits
+        });
+
+        let mut bit_vars = Vec::with_capacity(32);
+        for i in 0..32 {
+            let bit_val = diff_bits.as_ref().map(|bits| F::from(bits[i]));
+            let bit_var = cs.new_witness_variable(|| bit_val.ok_or(SynthesisError::AssignmentMissing))?;
+
+            // Enforce boolean constraint on each bit: bit * (1 - bit) = 0
+            cs.enforce_constraint(
+                LinearCombination::from(bit_var),
+                LinearCombination::from((one, ark_relations::r1cs::Variable::One)) - bit_var,
+                LinearCombination::zero(),
+            )?;
+            bit_vars.push(bit_var);
+        }
+
+        // 3. Enforce reconstruction constraint: sum(bit_i * 2^i) = diff
+        let mut lc = LinearCombination::zero();
+        let mut coeff = F::one();
+        for &bit_var in &bit_vars {
+            lc += (coeff, bit_var);
+            coeff.double_in_place();
+        }
+
+        cs.enforce_constraint(
+            lc,
+            LinearCombination::from((one, ark_relations::r1cs::Variable::One)),
+            LinearCombination::from(diff_var),
         )?;
 
         Ok(())

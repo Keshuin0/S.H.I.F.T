@@ -105,7 +105,7 @@
 8. **Target Compilation Verification**: Cross-compiled the ARM64 release binary for Android using `cargo ndk` to confirm compilation footprint with zero warnings.
 9. **Physical Device Verification**: Discovered a JNI library directory packaging discrepancy (where `cargo ndk` only updates library targets automatically). Resolved it by manually syncing the `shift_vault` executable target to `libshift_core.so` in `jniLibs`. Deployed to a physical test phone and verified successful boot key loading and Proof of Location ZK-proving with an outstanding **7ms** latency (exceeding target metrics).
 
-### Session 6 (2026-05-30, Conversation: a0b246fc-1c02-4353-bfb2-f48f673151ff, Current)
+### Session 6 (2026-05-30, Conversation: a0b246fc-1c02-4353-bfb2-f48f673151ff)
 **What was done:**
 1. **Resolved Issue #111 (A11)** — Sovereign Tunnel: VSOCK Challenge-Response Authentication.
 2. **Hybrid Authenticated Key Exchange (AKE)**: Implemented Ephemeral Curve25519 (P-256) ECDH key agreement with Perfect Forward Secrecy.
@@ -115,12 +115,20 @@
 6. **Fixed Signed Byte Hex Mismatch**: Standardized hex conversion of public key bytes using unsigned lowercase formatting in Kotlin.
 7. **End-to-End Verification**: Compiled and successfully verified on physical test device `SM-F956W`.
 
+### Session 7 (2026-05-30, Conversation: 54081ed0-b36a-4b31-b444-b5a3893a2117, Current)
+**What was done:**
+1. **Resolved Issue #98 (A2)** — ZK Distance Bounding circuit missing inequality constraint.
+2. **Difference Range Proof (DRP) Optimization**: Implemented an optimized 32-bit range proof of the algebraic difference ($max\_round\_trip - round\_trip\_dist$) using finite field wrap-around properties. This reduces the constraint count to exactly 33 (a 75% reduction over standard `UInt64` comparison gadgets).
+3. **Test Suite Hardening**: Corrected simulated coordinates in `test_caching_proving_and_verification` to use valid parameters. Added a negative test case `test_distance_out_of_bounds_fails` with `#[should_panic]` to verify out-of-bounds rejection.
+4. **End-to-End Verification**: Cross-compiled the Rust core, packaged the APK, and deployed to physical Galaxy Z Fold 6 (SM-F956W). Verified that valid telemetry successfully generates a 192-byte ZK-SNARK PoL proof in **9 ms**.
+5. **GitHub Reorganization**: Updated `ISSUES_TRACKER.md` and closed remote Issue #98 on GitHub via CLI.
+
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **72 open issues**, 34 closed, 106 total
+- **71 open issues**, 35 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
@@ -130,7 +138,7 @@
 ### Milestone Status
 | Milestone | Issues | Due | Status |
 |-----------|--------|-----|--------|
-| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (5 closed) |
+| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (6 closed) |
 | M1: Root of Trust | 14 | Oct 2, 2026 | 🟡 In Progress (Fallback added) |
 | M2: P2P Mesh MVP | 18 | Dec 25, 2026 | 🔴 Not started |
 | M3: Ledger & Settlement | 8 | Mar 5, 2027 | 🔴 Not started |
@@ -138,7 +146,7 @@
 | M5: Production UX | 5 | Jul 9, 2027 | 🔴 Not started |
 
 ### Priority Issues (Fix Order)
-**P0 Critical (5):** #98 (A2), #99 (A3), #109 (A5 - Closed), #111 (A11 - Closed)
+**P0 Critical (4):** #99 (A3), #101 (A6), #102 (A7), #110 (A8)
 **P1 High (27):** Most Phase 1-2 features + 6 major audit issues
 **P2 Medium (18):** Phase 2-3 features + Issue #123 (Hardware Limitation)
 **P3 Low (10):** Cleanup + minor audit issues
@@ -150,7 +158,7 @@ Start M0: Audit Fixes. Recommended order:
 3. ~~A4 (#100) — Persist libp2p identity to TEE storage~~ (Completed Session 4)
 4. ~~A5 (#109) — Cache Groth16 proving/verification keys~~ (Completed Session 5)
 5. ~~A11 (#111) — Add VSOCK challenge-response authentication~~ (Completed Session 6)
-6. A2 (#98) — Add enforce_less_than constraint to ZK circuit
+6. ~~A2 (#98) — Add enforce_less_than constraint to ZK circuit~~ (Completed Session 7)
 7. A3 (#99) — Replace simulated ranging with real BLE/UWB
 
 ---
@@ -165,7 +173,7 @@ Start M0: Audit Fixes. Recommended order:
 | Identity generation | main.rs | 200-230 | Persistent via ECDH & PQC HKDF |
 | PoL generation | main.rs | 390-435 | Uses SipHash (not crypto), setup per-call |
 | Prover Cache | zk_prover.rs | 10-69 | OnceLock key cache + benchmark unit test |
-| ZK circuit | zk_engine.rs | 65-101 | Missing inequality constraint |
+| ZK circuit | zk_engine.rs | 42-140 | Closed: Enforced 32-bit DRP inequality constraint |
 | Ranging | main.rs | 411-420 | Entirely simulated |
 | BLE scanner | MainActivity.kt | 333-353 | No UUID filter |
 | nearbyNodes | MainActivity.kt | 98 | Not thread-safe |
@@ -182,4 +190,4 @@ Start M0: Audit Fixes. Recommended order:
 
 ---
 
-*Last updated: 2026-05-30 Session 6*
+*Last updated: 2026-05-30 Session 7*
