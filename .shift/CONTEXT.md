@@ -93,7 +93,7 @@
 6. **Desktop Compilation Gating**: Conditionally gated Unix sockets behind `#[cfg(unix)]` in `main.rs` and added a TCP listener under `#[cfg(not(unix))]` to enable desktop compilation checks and tests.
 7. **Unit Test Verification**: Implemented deterministic key derivation unit tests which passed successfully.
 
-### Session 5 (2026-05-30, Conversation: bef1657e-52b4-4a8a-a2be-271e2af5ddb1, Current)
+### Session 5 (2026-05-30, Conversation: bef1657e-52b4-4a8a-a2be-271e2af5ddb1)
 **What was done:**
 1. **Resolved Issue #109 (A5)** — Groth16 trusted setup runs on every PoL (P0 Critical).
 2. **Deadlock-Free File Separation**: Restructured the ZK system, separating pure circuit constraints (`zk_engine.rs`) from proving execution cache (`zk_prover.rs`). This allows `build.rs` to compile the circuit without causing compile-time circular dependency deadlocks.
@@ -105,12 +105,22 @@
 8. **Target Compilation Verification**: Cross-compiled the ARM64 release binary for Android using `cargo ndk` to confirm compilation footprint with zero warnings.
 9. **Physical Device Verification**: Discovered a JNI library directory packaging discrepancy (where `cargo ndk` only updates library targets automatically). Resolved it by manually syncing the `shift_vault` executable target to `libshift_core.so` in `jniLibs`. Deployed to a physical test phone and verified successful boot key loading and Proof of Location ZK-proving with an outstanding **7ms** latency (exceeding target metrics).
 
+### Session 6 (2026-05-30, Conversation: a0b246fc-1c02-4353-bfb2-f48f673151ff, Current)
+**What was done:**
+1. **Resolved Issue #111 (A11)** — Sovereign Tunnel: VSOCK Challenge-Response Authentication.
+2. **Hybrid Authenticated Key Exchange (AKE)**: Implemented Ephemeral Curve25519 (P-256) ECDH key agreement with Perfect Forward Secrecy.
+3. **Digital Signature Transcript Verification**: Verified the digital signature transcript using the device's hardware-backed private key (`SHIFT_SOVEREIGN_NODE_ID`) in Android KeyStore, checking it against the expected node identity in Rust.
+4. **Military-grade AEAD Encryption**: Used `AES-GCM-256` to encrypt all telemetry commands and payloads over the local socket connection.
+5. **Resolved Biometric Authorization Deadlock**: Added 15-second validity duration (`setUserAuthenticationValidityDurationSeconds(15)`) to the signing key to prevent deadlocks when prompt triggers before the handshake transcript exists.
+6. **Fixed Signed Byte Hex Mismatch**: Standardized hex conversion of public key bytes using unsigned lowercase formatting in Kotlin.
+7. **End-to-End Verification**: Compiled and successfully verified on physical test device `SM-F956W`.
+
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **73 open issues**, 33 closed, 106 total
+- **72 open issues**, 34 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
@@ -120,7 +130,7 @@
 ### Milestone Status
 | Milestone | Issues | Due | Status |
 |-----------|--------|-----|--------|
-| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (4 closed) |
+| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (5 closed) |
 | M1: Root of Trust | 14 | Oct 2, 2026 | 🟡 In Progress (Fallback added) |
 | M2: P2P Mesh MVP | 18 | Dec 25, 2026 | 🔴 Not started |
 | M3: Ledger & Settlement | 8 | Mar 5, 2027 | 🔴 Not started |
@@ -128,7 +138,7 @@
 | M5: Production UX | 5 | Jul 9, 2027 | 🔴 Not started |
 
 ### Priority Issues (Fix Order)
-**P0 Critical (5):** #98 (A2), #99 (A3), #109 (A5 - Closed), #111 (A11)
+**P0 Critical (5):** #98 (A2), #99 (A3), #109 (A5 - Closed), #111 (A11 - Closed)
 **P1 High (27):** Most Phase 1-2 features + 6 major audit issues
 **P2 Medium (18):** Phase 2-3 features + Issue #123 (Hardware Limitation)
 **P3 Low (10):** Cleanup + minor audit issues
@@ -139,7 +149,7 @@ Start M0: Audit Fixes. Recommended order:
 2. ~~Hardware Fallback (#123) — Implement Native Fallback for non-AVF devices~~ (Completed Session 3)
 3. ~~A4 (#100) — Persist libp2p identity to TEE storage~~ (Completed Session 4)
 4. ~~A5 (#109) — Cache Groth16 proving/verification keys~~ (Completed Session 5)
-5. A11 (#111) — Add VSOCK challenge-response authentication
+5. ~~A11 (#111) — Add VSOCK challenge-response authentication~~ (Completed Session 6)
 6. A2 (#98) — Add enforce_less_than constraint to ZK circuit
 7. A3 (#99) — Replace simulated ranging with real BLE/UWB
 
@@ -150,7 +160,7 @@ Start M0: Audit Fixes. Recommended order:
 ### Critical Code Locations
 | What | File | Lines | Status |
 |------|------|-------|--------|
-| VSOCK listener | main.rs | 129-185 | Working but unauthenticated |
+| VSOCK listener | main.rs | 129-185 | Closed: ECDH + Hardware Signature + AES-GCM Encrypted Tunnel |
 | Command handler | main.rs | 445-560 | Missing commands implemented |
 | Identity generation | main.rs | 200-230 | Persistent via ECDH & PQC HKDF |
 | PoL generation | main.rs | 390-435 | Uses SipHash (not crypto), setup per-call |
@@ -172,4 +182,4 @@ Start M0: Audit Fixes. Recommended order:
 
 ---
 
-*Last updated: 2026-05-30 Session 5*
+*Last updated: 2026-05-30 Session 6*

@@ -204,18 +204,184 @@ fn main() {
 }
 
 fn handle_connection(stream: &mut std::net::TcpStream) {
-    let mut buffer = [0; 8192];
-    if let Ok(bytes_read) = stream.read(&mut buffer) {
-        if bytes_read > 0 {
-            let command = String::from_utf8_lossy(&buffer[..bytes_read]).trim().to_string();
-            info!("⚙️ [VAULT] Command received: {}", command);
-            
-            let response = process_vault_command(&command);
-            
-            let _ = stream.write(response.as_bytes());
+    use p256::{ecdh::EphemeralSecret, EncodedPoint, PublicKey, ecdsa::{VerifyingKey, Signature, signature::Verifier}};
+    use p256::pkcs8::DecodePublicKey;
+    use rand_core::{OsRng, RngCore};
+    use aes_gcm::{Aes256Gcm, Key, KeyInit, aead::{Aead}};
+    use aes_gcm::Nonce as AeadNonce;
+
+    info!("🛡️ [SOVEREIGN TUNNEL] handle_connection started");
+
+    // 1. Generate Vault Ephemeral Key & Nonce
+    let vault_secret = EphemeralSecret::random(&mut OsRng);
+    let vault_pub = EncodedPoint::from(vault_secret.public_key());
+    let vault_pub_bytes = vault_pub.as_bytes(); // 65 bytes uncompressed
+    info!("🛡️ [SOVEREIGN TUNNEL] Vault Ephemeral PubKey generated ({} bytes)", vault_pub_bytes.len());
+    
+    let mut nonce = [0u8; 32];
+    OsRng.fill_bytes(&mut nonce);
+
+    // Write Phase 1 to stream
+    info!("🛡️ [SOVEREIGN TUNNEL] Writing Vault PubKey and Nonce to stream...");
+    if let Err(e) = stream.write_all(vault_pub_bytes) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to write vault_pub_bytes: {:?}", e);
+        return;
+    }
+    if let Err(e) = stream.write_all(&nonce) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to write nonce: {:?}", e);
+        return;
+    }
+    info!("🛡️ [SOVEREIGN TUNNEL] Vault PubKey and Nonce sent successfully. Reading App Response...");
+
+    // 2. Read App Response
+    info!("🛡️ [SOVEREIGN TUNNEL] Reading hw_pub_len_buf...");
+    let mut hw_pub_len_buf = [0u8; 2];
+    if let Err(e) = stream.read_exact(&mut hw_pub_len_buf) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to read hw_pub_len_buf: {:?}", e);
+        return;
+    }
+    let hw_pub_len = u16::from_be_bytes(hw_pub_len_buf) as usize;
+    info!("🛡️ [SOVEREIGN TUNNEL] hw_pub_len: {}", hw_pub_len);
+    if hw_pub_len > 2048 {
+        error!("❌ [SOVEREIGN TUNNEL] hw_pub_len exceeds limit: {}", hw_pub_len);
+        return;
+    } 
+    let mut hw_pub = vec![0u8; hw_pub_len];
+    if let Err(e) = stream.read_exact(&mut hw_pub) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to read hw_pub: {:?}", e);
+        return;
+    }
+    info!("🛡️ [SOVEREIGN TUNNEL] hw_pub read successfully ({} bytes)", hw_pub.len());
+
+    let mut app_pub = [0u8; 65];
+    if let Err(e) = stream.read_exact(&mut app_pub) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to read app_pub: {:?}", e);
+        return;
+    }
+    info!("🛡️ [SOVEREIGN TUNNEL] app_pub read successfully ({} bytes)", app_pub.len());
+
+    let mut sig_len_buf = [0u8; 2];
+    if let Err(e) = stream.read_exact(&mut sig_len_buf) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to read sig_len_buf: {:?}", e);
+        return;
+    }
+    let sig_len = u16::from_be_bytes(sig_len_buf) as usize;
+    info!("🛡️ [SOVEREIGN TUNNEL] sig_len: {}", sig_len);
+    if sig_len > 2048 {
+        error!("❌ [SOVEREIGN TUNNEL] sig_len exceeds limit: {}", sig_len);
+        return;
+    }
+    let mut sig = vec![0u8; sig_len];
+    if let Err(e) = stream.read_exact(&mut sig) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to read sig: {:?}", e);
+        return;
+    }
+    info!("🛡️ [SOVEREIGN TUNNEL] sig read successfully ({} bytes)", sig.len());
+
+    let mut ct_len_buf = [0u8; 4];
+    if let Err(e) = stream.read_exact(&mut ct_len_buf) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to read ct_len_buf: {:?}", e);
+        return;
+    }
+    let ct_len = u32::from_be_bytes(ct_len_buf) as usize;
+    info!("🛡️ [SOVEREIGN TUNNEL] ct_len: {}", ct_len);
+    if ct_len > 1024 * 1024 {
+        error!("❌ [SOVEREIGN TUNNEL] ct_len exceeds limit: {}", ct_len);
+        return;
+    } 
+    let mut ciphertext = vec![0u8; ct_len];
+    if let Err(e) = stream.read_exact(&mut ciphertext) {
+        error!("❌ [SOVEREIGN TUNNEL] Failed to read ciphertext: {:?}", e);
+        return;
+    }
+    info!("🛡️ [SOVEREIGN TUNNEL] ciphertext read successfully ({} bytes)", ciphertext.len());
+
+    // 3. Cryptographic Verification
+    let hw_pub_hex = hex::encode(&hw_pub);
+    if let Some(registered_id) = NODE_IDENTITY.get() {
+        if registered_id != &hw_pub_hex {
+            error!("❌ [SOVEREIGN TUNNEL] Hardware Identity Mismatch! Expected: {}, Got: {}", registered_id, hw_pub_hex);
+            return;
         }
     }
+
+    info!("🛡️ [SOVEREIGN TUNNEL] Verifying Hardware ECDSA signature...");
+    let verifying_key = match VerifyingKey::from_public_key_der(&hw_pub) {
+        Ok(k) => k,
+        Err(e) => { error!("❌ [SOVEREIGN TUNNEL] Invalid Hardware Public Key format: {:?}", e); return; }
+    };
+    let signature = match Signature::from_der(&sig) {
+        Ok(s) => s,
+        Err(e) => { error!("❌ [SOVEREIGN TUNNEL] Invalid Signature format: {:?}", e); return; }
+    };
+
+    let mut transcript = Vec::new();
+    transcript.extend_from_slice(vault_pub_bytes);
+    transcript.extend_from_slice(&app_pub);
+    transcript.extend_from_slice(&nonce);
+    transcript.extend_from_slice(&ciphertext);
+
+    if let Err(e) = verifying_key.verify(&transcript, &signature) {
+        error!("❌ [SOVEREIGN TUNNEL] ECDSA Hardware Signature Verification Failed: {:?}", e);
+        return;
+    }
+    info!("🛡️ [SOVEREIGN TUNNEL] Hardware ECDSA signature verified successfully!");
+
+    // 4. Derive Shared Secret
+    info!("🛡️ [SOVEREIGN TUNNEL] Deriving shared secret via Ephemeral ECDH...");
+    let app_public_point = match EncodedPoint::from_bytes(&app_pub) {
+        Ok(p) => p,
+        Err(e) => { error!("❌ [SOVEREIGN TUNNEL] Invalid App Ephemeral Public Key Point: {:?}", e); return; }
+    };
+    let app_public_key = match PublicKey::from_sec1_bytes(app_public_point.as_ref()) {
+        Ok(k) => k,
+        Err(e) => { error!("❌ [SOVEREIGN TUNNEL] Invalid App Ephemeral Public Key: {:?}", e); return; }
+    };
+    let shared_secret = vault_secret.diffie_hellman(&app_public_key);
+
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(shared_secret.raw_secret_bytes());
+    let aes_key = hasher.finalize();
+    info!("🛡️ [SOVEREIGN TUNNEL] Shared secret derived and AES key hashed successfully.");
+
+    // 5. Decrypt Payload
+    info!("🛡️ [SOVEREIGN TUNNEL] Decrypting payload via AES-GCM...");
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&aes_key));
+    let aead_nonce_req = AeadNonce::from_slice(&nonce[0..12]);
+    let decrypted = match cipher.decrypt(aead_nonce_req, ciphertext.as_ref()) {
+        Ok(d) => d,
+        Err(e) => { error!("❌ [SOVEREIGN TUNNEL] AES-GCM Decryption Failed: {:?}", e); return; }
+    };
+
+    let command = String::from_utf8_lossy(&decrypted).trim().to_string();
+    info!("🛡️ [SOVEREIGN TUNNEL] Payload Decrypted Safely: [{}]", command);
+
+    // 6. Enforce First Command Rule if Node Identity is missing
+    if NODE_IDENTITY.get().is_none() && !command.starts_with("REGISTER_NODE:") {
+        error!("❌ [SOVEREIGN TUNNEL] Vault Uninitialized. First command must be REGISTER_NODE.");
+        return;
+    }
+
+    // 7. Process Vault Command
+    info!("🛡️ [SOVEREIGN TUNNEL] Processing Command...");
+    let response = process_vault_command(&command);
+    info!("🛡️ [SOVEREIGN TUNNEL] Command processed, response: [{}]", response);
+
+    // 8. Encrypt Response
+    info!("🛡️ [SOVEREIGN TUNNEL] Encrypting Response via AES-GCM...");
+    let aead_nonce_res = AeadNonce::from_slice(&nonce[12..24]);
+    let response_bytes = response.as_bytes();
+    let encrypted_response = match cipher.encrypt(aead_nonce_res, response_bytes) {
+        Ok(e) => e,
+        Err(e) => { error!("❌ [SOVEREIGN TUNNEL] AES-GCM Encryption Failed: {:?}", e); return; }
+    };
+
+    let res_len = encrypted_response.len() as u32;
+    info!("🛡️ [SOVEREIGN TUNNEL] Sending encrypted response ({} bytes)...", res_len);
+    let _ = stream.write_all(&res_len.to_be_bytes());
+    let _ = stream.write_all(&encrypted_response);
     let _ = stream.shutdown(Shutdown::Both);
+    info!("🛡️ [SOVEREIGN TUNNEL] Connection closed successfully.");
 }
 
 // =========================================================================
