@@ -122,6 +122,10 @@
 3. **Test Suite Hardening**: Corrected simulated coordinates in `test_caching_proving_and_verification` to use valid parameters. Added a negative test case `test_distance_out_of_bounds_fails` with `#[should_panic]` to verify out-of-bounds rejection.
 4. **End-to-End Verification**: Cross-compiled the Rust core, packaged the APK, and deployed to physical Galaxy Z Fold 6 (SM-F956W). Verified that valid telemetry successfully generates a 192-byte ZK-SNARK PoL proof in **9 ms**.
 5. **GitHub Reorganization**: Updated `ISSUES_TRACKER.md` and closed remote Issue #98 on GitHub via CLI.
+6. **Resolved Pull Request #128 CI Check Failures**:
+   - Fixed 6 Clippy errors under warnings-as-errors (`-D warnings`) in `shift_core/src/main.rs`.
+   - Modified `gemini-gatekeeper.yml` to use `gemini-2.5-pro` instead of the invalid model endpoint `gemini-3.1-pro-preview`.
+   - Compiled the target `aarch64-linux-android` release binary with platform level 24 (`-P 24`) to correctly link network functions (`getifaddrs`/`freeifaddrs`), updating `libshift_core.so` in `android_app/app/src/main/jniLibs/arm64-v8a/`.
 
 ---
 
