@@ -4,9 +4,10 @@
 
 mod zk_engine; // PHASE 1.6 & 4.3 Modularized ZK Logic
 mod ranging;   // PHASE 1.6 Cryptographic Ranging Engine
+mod zk_prover; // Baked static parameter prover cache
 
 #[cfg(unix)]
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::io::{Read, Write};
 use std::net::Shutdown;
 
@@ -130,8 +131,9 @@ fn execute_zk_psi(scanned_macs: Vec<&str>, expected_macs: Vec<&str>) -> String {
 
 // =========================================================================
 // PHASE 1.6: THE VSOCK HYPERVISOR BRIDGE (REPLACES JNI)
-// =========================================================================
+#[cfg(unix)]
 const VSOCK_PORT: u32 = 8000;
+#[cfg(unix)]
 const VMADDR_CID_ANY: u32 = 0xFFFFFFFF; 
 
 fn main() {
@@ -249,6 +251,8 @@ fn process_vault_command(command: &str) -> String {
                 
                 let _ = ACTIVE_RIDE_LOCKS.set(Mutex::new(HashMap::new()));
                 let _ = LOCAL_LEDGER.set(Mutex::new(HashMap::new()));
+
+                zk_prover::pre_initialize_keys();
 
                 rt.spawn(async move {
                     info!("🚀 [BACKGROUND ENGINE] Spinning up Layer-1 Node...");
@@ -486,7 +490,7 @@ fn process_vault_command(command: &str) -> String {
             let mut zksnark_receipt = String::new();
             match ranging::verify_time_of_flight(&challenge, &response_obj, &dummy_peer_key.public()) {
                 Ok((delta_t, t_compute)) => {
-                    zksnark_receipt = zk_engine::generate_tof_proof(delta_t, t_compute, 50_000);
+                    zksnark_receipt = zk_prover::generate_tof_proof(delta_t, t_compute, 50_000);
                     
                     if let Some(tx) = MESH_TX.get() {
                         let payload = format!("Node deployed to: [{}] | BLE: [{}] | Hash: {} | ZK-DB: {}", core_h3_zone.as_str(), extracted_ble, cryptogram, zksnark_receipt);
