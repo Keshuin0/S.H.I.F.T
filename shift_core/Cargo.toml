@@ -21,7 +21,9 @@ sha2 = "0.10.8"
 hkdf = "0.12.3"
 hex = "0.4.3"
 ark-serialize = "^0.4.0"
-
+p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
+rand_core = { version = "0.6.4", features = ["std"] }
+aes-gcm = "0.10.3"
 # ⚡ PHASE 1.6: Hypervisor VSOCK & OS Communication
 nix = { version = "0.27.1", features = ["socket"] }
 libc = "0.2"
