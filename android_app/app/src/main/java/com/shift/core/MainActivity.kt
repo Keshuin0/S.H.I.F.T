@@ -42,6 +42,124 @@ object TeeBridge {
     var isNativeFallback: Boolean = false
     const val VSOCK_PORT: Long = 8000
 
+    private fun executeSovereignHandshake(inputStream: InputStream, outputStream: OutputStream, command: String): String {
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Started")
+        val dataIn = java.io.DataInputStream(inputStream)
+        val dataOut = java.io.DataOutputStream(outputStream)
+
+        // 1. Read Vault Ephemeral PubKey (65 bytes) and Nonce (32 bytes)
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Reading 65-byte Vault PubKey...")
+        val vaultPubBytes = ByteArray(65)
+        dataIn.readFully(vaultPubBytes)
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Read Vault PubKey successfully")
+        
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Reading 32-byte Nonce...")
+        val nonce = ByteArray(32)
+        dataIn.readFully(nonce)
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Read Nonce successfully")
+
+        // 2. Generate App Ephemeral KeyPair
+        val kpg = java.security.KeyPairGenerator.getInstance("EC")
+        kpg.initialize(java.security.spec.ECGenParameterSpec("secp256r1"))
+        val appKeyPair = kpg.generateKeyPair()
+        
+        val ecPubKey = appKeyPair.public as java.security.interfaces.ECPublicKey
+        val w = ecPubKey.w
+        val appPubBytes = ByteArray(65)
+        appPubBytes[0] = 0x04
+        val affineX = w.affineX.toByteArray()
+        val affineY = w.affineY.toByteArray()
+        fun copyTo32(src: ByteArray, dest: ByteArray, offset: Int) {
+            val start = if (src.size > 32) src.size - 32 else 0
+            val len = Math.min(32, src.size)
+            val destStart = offset + (32 - len)
+            System.arraycopy(src, start, dest, destStart, len)
+        }
+        copyTo32(affineX, appPubBytes, 1)
+        copyTo32(affineY, appPubBytes, 33)
+
+        // 3. Derive Shared Secret
+        val keyFactory = java.security.KeyFactory.getInstance("EC")
+        val vaultW = java.security.spec.ECPoint(
+            java.math.BigInteger(1, vaultPubBytes.copyOfRange(1, 33)),
+            java.math.BigInteger(1, vaultPubBytes.copyOfRange(33, 65))
+        )
+        val vaultParams = ecPubKey.params
+        val vaultPubSpec = java.security.spec.ECPublicKeySpec(vaultW, vaultParams)
+        val vaultPubKey = keyFactory.generatePublic(vaultPubSpec)
+
+        val keyAgreement = javax.crypto.KeyAgreement.getInstance("ECDH")
+        keyAgreement.init(appKeyPair.private)
+        keyAgreement.doPhase(vaultPubKey, true)
+        val sharedSecret = keyAgreement.generateSecret()
+
+        // 4. Derive AES-GCM Key
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Deriving AES key...")
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val aesKey = javax.crypto.spec.SecretKeySpec(md.digest(sharedSecret), "AES")
+
+        // 5. Encrypt Command Payload
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Encrypting payload...")
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        val reqNonce = nonce.copyOfRange(0, 12)
+        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, reqNonce)
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, aesKey, gcmSpec)
+        val ciphertext = cipher.doFinal(command.toByteArray(Charsets.UTF_8))
+
+        // 6. Sign Transcript
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Loading keyStore and private key...")
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        val hardwarePrivateKey = keyStore.getKey("SHIFT_SOVEREIGN_NODE_ID", null) as java.security.PrivateKey
+        val hardwareCert = keyStore.getCertificate("SHIFT_SOVEREIGN_NODE_ID")
+        val hwPub = hardwareCert.publicKey.encoded
+
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Preparing signature transcript...")
+        val transcript = java.io.ByteArrayOutputStream().apply {
+            write(vaultPubBytes)
+            write(appPubBytes)
+            write(nonce)
+            write(ciphertext)
+        }.toByteArray()
+
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Initializing signature...")
+        val signature = java.security.Signature.getInstance("SHA256withECDSA")
+        signature.initSign(hardwarePrivateKey)
+        signature.update(transcript)
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Signing transcript...")
+        val sig = signature.sign()
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Signed transcript successfully")
+
+        // 7. Write App Response to Vault
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Writing App Response to stream...")
+        dataOut.writeShort(hwPub.size)
+        dataOut.write(hwPub)
+        dataOut.write(appPubBytes)
+        dataOut.writeShort(sig.size)
+        dataOut.write(sig)
+        dataOut.writeInt(ciphertext.size)
+        dataOut.write(ciphertext)
+        dataOut.flush()
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Flushed response to stream. Waiting for Vault response...")
+
+        // 8. Read Vault Response
+        val resLen = dataIn.readInt()
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Got Vault response length: $resLen bytes. Reading ciphertext...")
+        val encryptedRes = ByteArray(resLen)
+        dataIn.readFully(encryptedRes)
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Read Vault response ciphertext successfully")
+
+        // 9. Decrypt Vault Response
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Decrypting response...")
+        val resNonce = nonce.copyOfRange(12, 24)
+        val resGcmSpec = javax.crypto.spec.GCMParameterSpec(128, resNonce)
+        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, aesKey, resGcmSpec)
+        val decryptedRes = cipher.doFinal(encryptedRes)
+        Log.d("SHIFT_TUNNEL", "executeSovereignHandshake: Decrypted response successfully")
+
+        return String(decryptedRes, Charsets.UTF_8)
+    }
+
     @SuppressLint("DiscouragedPrivateApi")
     fun sendCommand(command: String): String {
         if (activeVm == null && !isNativeFallback) return "❌ Execution Denied: Hypervisor/Fallback is offline. Ignite pKVM first."
@@ -51,25 +169,29 @@ object TeeBridge {
             val maxAttempts = 5
             var lastException: Exception? = null
             while (attempts < maxAttempts) {
+                var socket: java.net.Socket? = null
                 try {
-                    val socket = java.net.Socket("127.0.0.1", VSOCK_PORT.toInt())
-                    socket.getOutputStream().write(command.toByteArray())
-                    socket.getOutputStream().flush()
-                    val response = socket.getInputStream().bufferedReader().use { it.readText() }
-                    socket.close()
+                    socket = java.net.Socket("127.0.0.1", VSOCK_PORT.toInt())
+                    val response = executeSovereignHandshake(socket.getInputStream(), socket.getOutputStream(), command)
                     return response
                 } catch (e: Exception) {
+                    Log.e("SHIFT_TUNNEL", "Error in sendCommand attempt $attempts: ${e.message}", e)
                     lastException = e
                     attempts++
                     if (attempts < maxAttempts) {
                         Thread.sleep(100)
                     }
+                } finally {
+                    try {
+                        socket?.close()
+                    } catch (ignored: Exception) {}
                 }
             }
             return "❌ TCP Fallback Connection Error: ${lastException?.message} (Failed after $maxAttempts attempts)"
         }
 
         val vm = activeVm!!
+        var socket: Any? = null
         return try {
             var vsockMethod: Method? = null
             for (m in vm.javaClass.methods) {
@@ -82,7 +204,7 @@ object TeeBridge {
 
             if (vsockMethod == null) return "❌ VSOCK binding not found on this hardware."
 
-            val socket = try {
+            socket = try {
                 vsockMethod.invoke(vm, VSOCK_PORT)
             } catch (e: Exception) {
                 Log.w("SHIFT_AVF", "Long port failed, trying Int. (${e.message})")
@@ -91,23 +213,26 @@ object TeeBridge {
 
             val getInputStreamMethod = socket.javaClass.getMethod("getInputStream")
             val getOutputStreamMethod = socket.javaClass.getMethod("getOutputStream")
-            val closeMethod = socket.javaClass.getMethod("close")
 
             val inputStream = getInputStreamMethod.invoke(socket) as InputStream
             val outputStream = getOutputStreamMethod.invoke(socket) as OutputStream
 
-            outputStream.write(command.toByteArray())
-            outputStream.flush()
-
-            val response = inputStream.bufferedReader().use { it.readText() }
-            closeMethod.invoke(socket)
-
+            val response = executeSovereignHandshake(inputStream, outputStream, command)
             response
         } catch (e: Exception) {
             "❌ VSOCK Connection Error: ${e.message}"
+        } finally {
+            if (socket != null) {
+                try {
+                    val closeMethod = socket.javaClass.getMethod("close")
+                    closeMethod.invoke(socket)
+                } catch (ignored: Exception) {}
+            }
         }
     }
 }
+
+private var nodeKeyRegenerated = false
 
 @SuppressLint("MissingPermission", "SetTextI18n", "DiscouragedPrivateApi", "PrivateApi")
 class MainActivity : AppCompatActivity() {
@@ -617,6 +742,16 @@ class MainActivity : AppCompatActivity() {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
 
+        if (!nodeKeyRegenerated) {
+            try {
+                keyStore.deleteEntry(keyAlias)
+                Log.d("SHIFT_KEYSTORE", "Deleted old node signing key to force regeneration with validity duration.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "Failed to delete old key: ${e.message}")
+            }
+            nodeKeyRegenerated = true
+        }
+
         if (!keyStore.containsAlias(keyAlias)) {
             val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
             var parameterSpec: KeyGenParameterSpec
@@ -626,26 +761,26 @@ class MainActivity : AppCompatActivity() {
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .setIsStrongBoxBacked(true)
                     .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(15)
                     .build()
                 keyPairGenerator.initialize(parameterSpec)
                 keyPairGenerator.generateKeyPair()
-                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with StrongBox backing.")
+                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with StrongBox backing and 15s validity duration.")
             } catch (e: Exception) {
                 Log.w("SHIFT_KEYSTORE", "StrongBox EC Signing Key failed, falling back to standard TEE. (${e.message})")
                 parameterSpec = KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .setIsStrongBoxBacked(false)
                     .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(15)
                     .build()
                 keyPairGenerator.initialize(parameterSpec)
                 keyPairGenerator.generateKeyPair()
-                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with standard TEE backing.")
+                Log.d("SHIFT_KEYSTORE", "Generated Primary Signing Key with standard TEE backing and 15s validity duration.")
             }
         }
 
-        return keyStore.getCertificate(keyAlias).publicKey.encoded.joinToString("") {
-            it.toString(16).padStart(2, '0')
-        }
+        return byteArrayToHexString(keyStore.getCertificate(keyAlias).publicKey.encoded)
     }
 
     private val agreementKeyAlias = "SHIFT_SOVEREIGN_AGREEMENT_KEY"

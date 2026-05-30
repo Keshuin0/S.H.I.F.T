@@ -156,7 +156,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A8 | 🟢 OPEN | 🟡 MAJOR | **DefaultHasher for PoL Hashing** | `main.rs` | 390-405 | `SipHash` is used for Proof of Location cryptographic binding, but it is NOT cryptographically secure. |
 | A9 | 🟢 OPEN | 🟡 MAJOR | **Block-Lattice Is Data Structure Only** | `main.rs` | 62-70 | `StateBlock` is defined but no functions to mint genesis block or handle ledger logic. |
 | A10 | 🟢 OPEN | 🟡 MAJOR | **BLE Mesh Has No S.H.I.F.T. Service UUID** | `MainActivity.kt` | 333-353 | Kotlin BLE scanner collects all nearby devices instead of filtering for S.H.I.F.T. peers. |
-| A11 | 🟢 OPEN | 🟡 MAJOR | **No VSOCK Authentication** | `main.rs` | 129-185 | Any process on the Android side can call the enclave. No HMAC or challenge-response. |
+| A11 | ✅ CLOSED | 🟡 MAJOR | **No VSOCK Authentication** | `main.rs` | 129-185 | Any process on the Android side can call the enclave. No HMAC or challenge-response. |
 | A12 | ✅ CLOSED | 🟡 MAJOR | **SOULBOUND_TOKEN Never Enforced** | `main.rs` | 48-50 | Rust Vault processes `GENERATE_POL` without checking if Soulbound Token exists. |
 | A13 | 🟢 OPEN | 🟡 MAJOR | **Thread Safety: nearbyNodes** | `MainActivity.kt` | 98 | `mutableSetOf` is not thread-safe. Scan callbacks write on background threads while UI reads. |
 
@@ -190,7 +190,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A8 | 🟢 OPEN | 🟡 MAJOR | [#110](https://github.com/Keshuin0/S.H.I.F.T/issues/110) | PoL uses non-cryptographic DefaultHasher |
 | A9 | 🟢 OPEN | 🟡 MAJOR | [#103](https://github.com/Keshuin0/S.H.I.F.T/issues/103) | Block-Lattice has no operational logic |
 | A10 | 🟢 OPEN | 🟡 MAJOR | [#104](https://github.com/Keshuin0/S.H.I.F.T/issues/104) | BLE mesh scanner collects all Bluetooth devices |
-| A11 | 🟢 OPEN | 🟡 MAJOR | [#111](https://github.com/Keshuin0/S.H.I.F.T/issues/111) | No VSOCK authentication |
+| A11 | ✅ CLOSED | 🟡 MAJOR | [#111](https://github.com/Keshuin0/S.H.I.F.T/issues/111) | No VSOCK authentication |
 | A12 | ✅ CLOSED | 🟡 MAJOR | [#112](https://github.com/Keshuin0/S.H.I.F.T/issues/112) | SOULBOUND_TOKEN never set or enforced |
 | A13 | 🟢 OPEN | 🟡 MAJOR | [#105](https://github.com/Keshuin0/S.H.I.F.T/issues/105) | nearbyNodes MutableSet is not thread-safe |
 | A14 | 🟢 OPEN | 🟠 MINOR | [#113](https://github.com/Keshuin0/S.H.I.F.T/issues/113) | activity_main.xml is unused |
