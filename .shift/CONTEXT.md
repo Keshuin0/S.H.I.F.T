@@ -127,19 +127,26 @@
     - Modified `gemini-gatekeeper.yml` to use `gemini-2.5-flash` with a 5-attempt retry loop to handle transient API overload/503/429 limits, resolved a Python 3.11 `SyntaxError` by removing backslash escapes in the f-string expressions, and updated the auditor prompt instructions to explicitly detail the system upgrade context, ZK dead-code cleanup, and network FFI library safety to allow gatekeeper approval.
     - Compiled the target `aarch64-linux-android` release binary with platform level 24 (`-P 24`) to link standard network functions (`getifaddrs`/`freeifaddrs`) used internally by the third-party `if_addrs` crate (a dependency of `libp2p` which manages dynamic memory deallocation safely via its own standard Drop patterns), updating `libshift_core.so` in `android_app/app/src/main/jniLibs/arm64-v8a/`.
 
-### Session 8 (2026-05-30, Conversation: 3eee5ea6-c597-4bf3-8802-380e0630ffc6, Current)
+### Session 8 (2026-05-30, Conversation: 3eee5ea6-c597-4bf3-8802-380e0630ffc6)
 **What was done:**
 1. **Resolved Issue #99 (A3) — Simulated Ranging Gating:** Defined the `RangingAttestation` consensus enum (`PhysicalToF = 0x01`, `SimulatedMock = 0xFE`). Gated simulated ranging in `main.rs` behind compile-time feature flags (`#[cfg(feature = "simulated")]`), stripping it completely from production release binaries and returning a hardware-offline error. Updated GossipSub payload to append attestation bytes.
 2. **Resolved Issue #110 (A8) — Telemetry Commitment Hashing:** Swapped the insecure 64-bit `DefaultHasher` (SipHash) with a hybrid **BLAKE3 + SHA-256d** commitment pipeline, bringing location proofs to cryptographically secure $2^{256}$ collision resistance while optimizing mobile CPU execution.
 3. **Resolved Issue #105 (A13) — Lock-Free Android Concurrency:** Replaced the non-thread-safe `mutableSetOf<String>` with a custom `LockFreeRingBufferSet(128)` utilizing lock-free and allocation-free `AtomicReferenceArray` and `AtomicInteger` operations in `MainActivity.kt`.
 4. **Verification:** Rust tests compile and pass cleanly in both standard and simulated configurations. Cross-compiled native `libshift_core.so` for `aarch64-linux-android` using `cargo ndk` and verified that the debug APK compiles successfully via `./gradlew assembleDebug` with zero warnings.
 
+### Session 9 (2026-05-30, Conversation: f5fdd351-a96c-440f-bb00-20dd22079564, Current)
+**What was done:**
+1. **Resolved Issue #101 (A6) — Async Stream & System Call Driver:** Gated standard TCP fallback stream under `#[cfg(not(unix))]`. Implemented `VsockStream` (gated under `#[cfg(unix)]`) implementing `AsyncRead`/`AsyncWrite` using `AsyncFd<OwnedFd>` driving non-blocking standard `libc` reads/writes and `libc::shutdown`. This replaces the insecure blocking `TcpStream::from_raw_fd`.
+2. **Resolved Issue #102 (A7) — DNS Swarm Bootstrapping:** Added the `libp2p/dns` feature to Cargo.toml. Added bootstrap seed multiaddresses, configured peer routing tables, configured GossipSub explicit peers, and triggered the dynamic Kademlia bootstrap process upon L1 engine ignition.
+3. **Cross-Compilation & Native Package:** Built the core binary targeting Android API level 35 to prevent link-time errors with standard network routines (`getifaddrs`/`freeifaddrs`), packaged it as `libshift_core.so` under `jniLibs/arm64-v8a/`, and verified successful deployment/run.
+4. **End-to-End Handshake & Logging Verification:** Deployed and verified on the connected physical Galaxy Z Fold 6 phone (`SM-F956W`).
+
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **69 open issues**, 37 closed, 106 total
+- **67 open issues**, 39 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
@@ -149,7 +156,7 @@
 ### Milestone Status
 | Milestone | Issues | Due | Status |
 |-----------|--------|-----|--------|
-| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (9 closed) |
+| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (11 closed) |
 | M1: Root of Trust | 14 | Oct 2, 2026 | 🟡 In Progress (Fallback added) |
 | M2: P2P Mesh MVP | 18 | Dec 25, 2026 | 🔴 Not started |
 | M3: Ledger & Settlement | 8 | Mar 5, 2027 | 🔴 Not started |
@@ -157,7 +164,7 @@
 | M5: Production UX | 5 | Jul 9, 2027 | 🔴 Not started |
 
 ### Priority Issues (Fix Order)
-**P0 Critical (2):** #101 (A6), #102 (A7)
+**P0 Critical (0):** None
 **P1 High (24):** Most Phase 1-2 features + remaining major audit issues
 **P2 Medium (18):** Phase 2-3 features + Issue #123 (Hardware Limitation)
 **P3 Low (10):** Cleanup + minor audit issues
@@ -171,8 +178,8 @@ Start M0: Audit Fixes. Recommended order:
 5. ~~A11 (#111) — Add VSOCK challenge-response authentication~~ (Completed Session 6)
 6. ~~A2 (#98) — Add enforce_less_than constraint to ZK circuit~~ (Completed Session 7)
 7. ~~A3 (#99) — Replace simulated ranging with real BLE/UWB~~ (Completed Session 8 - Gated simulation and attestation)
-8. A6 (#101) — Use raw `nix` read/write operations directly on VSOCK file descriptor (P0 Critical)
-9. A7 (#102) — Peer bootstrapping (P0 Critical)
+8. ~~A6 (#101) — Use raw `nix` read/write operations directly on VSOCK file descriptor (P0 Critical)~~ (Completed Session 9)
+9. ~~A7 (#102) — Peer bootstrapping (P0 Critical)~~ (Completed Session 9)
 
 ---
 
@@ -203,4 +210,4 @@ Start M0: Audit Fixes. Recommended order:
 
 ---
 
-*Last updated: 2026-05-30 Session 8*
+*Last updated: 2026-05-30 Session 9*
