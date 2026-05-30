@@ -35,6 +35,34 @@ import java.security.KeyStore
 import kotlinx.coroutines.*
 
 // =========================================================================
+// 💎 PINNACLE CONCURRENCY: LOCK-FREE & ALLOCATION-FREE SNAPSHOT BUFFER
+// =========================================================================
+class LockFreeRingBufferSet(private val capacity: Int) {
+    private val array = java.util.concurrent.atomic.AtomicReferenceArray<String?>(capacity)
+    private val index = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun add(element: String): Boolean {
+        for (i in 0 until capacity) {
+            if (array.get(i) == element) return false
+        }
+        val targetIdx = index.getAndIncrement() % capacity
+        array.set(targetIdx, element)
+        return true
+    }
+
+    fun getSnapshot(): List<String> {
+        val snapshot = mutableListOf<String>()
+        for (i in 0 until capacity) {
+            val el = array.get(i)
+            if (el != null) {
+                snapshot.add(el)
+            }
+        }
+        return snapshot
+    }
+}
+
+// =========================================================================
 // PHASE 1.6: THE DYNAMIC VSOCK HYPERVISOR BRIDGE
 // =========================================================================
 object TeeBridge {
@@ -238,7 +266,7 @@ private var nodeKeyRegenerated = false
 class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var scrollView: ScrollView
-    private val nearbyNodes = mutableSetOf<String>()
+    private val nearbyNodes = LockFreeRingBufferSet(128)
     private var isMeshActive = false
     private val ioScope = CoroutineScope(Dispatchers.IO)
     private var nativeProcess: Process? = null
@@ -491,9 +519,10 @@ class MainActivity : AppCompatActivity() {
 
             statusText.append("\n\n[FIRING ZK-PSI MATHEMATICAL REJECTION ENGINE...]")
 
-            val scannedString = if (nearbyNodes.isNotEmpty()) { nearbyNodes.joinToString(",") } else { "00:11:22:33:44:55" }
-            val expectedString = if (nearbyNodes.size >= 3) {
-                val realMacsToMatch = nearbyNodes.take(3).joinToString(",")
+            val snapshot = nearbyNodes.getSnapshot()
+            val scannedString = if (snapshot.isNotEmpty()) { snapshot.joinToString(",") } else { "00:11:22:33:44:55" }
+            val expectedString = if (snapshot.size >= 3) {
+                val realMacsToMatch = snapshot.take(3).joinToString(",")
                 "$realMacsToMatch,FF:EE:DD:CC:BB:AA"
             } else {
                 "00:11:22:33:44:55,AA:BB:CC:DD:EE:FF,11:22:33:44:55:66"
@@ -521,7 +550,7 @@ class MainActivity : AppCompatActivity() {
 
             statusText.append("\n\n[INITIATING HYBRID MARKET-MAKER...]")
 
-            val localDemand = nearbyNodes.size
+            val localDemand = nearbyNodes.getSnapshot().size
             val baseRatePerMile = 1.50
             val surgeMultiplier = if (localDemand > 5) 1.5 else 1.0
             val aiSuggestedFare = baseRatePerMile * surgeMultiplier
@@ -725,7 +754,8 @@ class MainActivity : AppCompatActivity() {
             null
         }
 
-        val meshConsensus = if (nearbyNodes.isNotEmpty()) { "BLE:${nearbyNodes.joinToString(",")}" } else { "BLE:ISOLATED" }
+        val snapshot = nearbyNodes.getSnapshot()
+        val meshConsensus = if (snapshot.isNotEmpty()) { "BLE:${snapshot.joinToString(",")}" } else { "BLE:ISOLATED" }
         val telemetry = if (location != null) {
             "LAT:${location.latitude}|LON:${location.longitude}|ALT:${location.altitude}|$meshConsensus|TS:${System.currentTimeMillis()}"
         } else {

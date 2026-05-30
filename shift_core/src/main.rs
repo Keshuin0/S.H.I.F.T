@@ -56,6 +56,13 @@ struct NodeBehaviour {
     relay_client: relay::client::Behaviour,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum RangingAttestation {
+    PhysicalToF = 0x01,
+    SimulatedMock = 0xFE,
+}
+
 static NODE_IDENTITY: OnceLock<String> = OnceLock::new();
 static SOULBOUND_TOKEN: OnceLock<String> = OnceLock::new();
 static LAMPORT_CLOCK: AtomicU64 = AtomicU64::new(0);
@@ -636,42 +643,72 @@ fn process_vault_command(command: &str) -> String {
                 }
             };
 
-            let mut hasher = DefaultHasher::new();
-            identity.hash(&mut hasher);
-            telemetry.hash(&mut hasher); 
-            let cryptogram = format!("{:x}", hasher.finish());
-            
-            // ⚡ PHASE 1.6: CRYPTOGRAPHIC DISTANCE BOUNDING & ZK-SNARK RECEIPT
-            let challenge = ranging::initiate_ranging_challenge();
-            let dummy_peer_key = identity::Keypair::generate_ed25519();
-            let (signature, compute_delay) = ranging::process_ranging_challenge(&challenge.nonce, &dummy_peer_key);
-            let simulated_rx_time = challenge.tx_timestamp_ns + compute_delay + 100;
-            
-            let response_obj = ranging::RangingResponse {
-                signature,
-                compute_delay_ns: compute_delay,
-                rx_timestamp_ns: simulated_rx_time,
-            };
+            let mut cryptogram = String::new();
+            // 💎 PINNACLE HYBRID COMMITMENT: BLAKE3 (On-Device Speed) + SHA-256d (Consensus Security)
+            {
+                let mut blake_hasher = blake3::Hasher::new();
+                blake_hasher.update(identity.as_bytes());
+                blake_hasher.update(telemetry.as_bytes());
+                let blake_hash = blake_hasher.finalize();
 
-            let mut zksnark_receipt = String::new();
-            match ranging::verify_time_of_flight(&challenge, &response_obj, &dummy_peer_key.public()) {
-                Ok((delta_t, t_compute)) => {
-                    zksnark_receipt = zk_prover::generate_tof_proof(delta_t, t_compute, 50_000);
-                    
-                    if let Some(tx) = MESH_TX.get() {
-                        let payload = format!("Node deployed to: [{}] | BLE: [{}] | Hash: {} | ZK-DB: {}", core_h3_zone.as_str(), extracted_ble, cryptogram, zksnark_receipt);
-                        let _ = tx.try_send(EngineCommand::TransmitPoL {
-                            global_topic: "shift-pol-network".to_string(),
-                            local_zone: core_h3_zone, 
-                            payload,
-                            k_rings: Box::new(k_ring_zones), 
-                        }); 
+                let mut sha_hasher1 = Sha256::new();
+                sha_hasher1.update(blake_hash.as_bytes());
+                let hash1 = sha_hasher1.finalize();
+
+                let mut sha_hasher2 = Sha256::new();
+                sha_hasher2.update(&hash1);
+                let final_hash = sha_hasher2.finalize();
+                cryptogram = hex::encode(final_hash);
+            }
+            
+            #[cfg(feature = "simulated")]
+            {
+                // ⚡ PHASE 1.6: CRYPTOGRAPHIC DISTANCE BOUNDING & ZK-SNARK RECEIPT
+                let challenge = ranging::initiate_ranging_challenge();
+                let dummy_peer_key = identity::Keypair::generate_ed25519();
+                let (signature, compute_delay) = ranging::process_ranging_challenge(&challenge.nonce, &dummy_peer_key);
+                let simulated_rx_time = challenge.tx_timestamp_ns + compute_delay + 100;
+                
+                let response_obj = ranging::RangingResponse {
+                    signature,
+                    compute_delay_ns: compute_delay,
+                    rx_timestamp_ns: simulated_rx_time,
+                };
+
+                match ranging::verify_time_of_flight(&challenge, &response_obj, &dummy_peer_key.public()) {
+                    Ok((delta_t, t_compute)) => {
+                        let zksnark_receipt = zk_prover::generate_tof_proof(delta_t, t_compute, 50_000);
+                        let ranging_attestation = RangingAttestation::SimulatedMock;
+                        
+                        if let Some(tx) = MESH_TX.get() {
+                            let payload = format!(
+                                "Node deployed to: [{}] | BLE: [{}] | Hash: {} | ZK-DB: {} | ATTEST: {:02x}",
+                                core_h3_zone.as_str(),
+                                extracted_ble,
+                                cryptogram,
+                                zksnark_receipt,
+                                ranging_attestation as u8
+                            );
+                            let _ = tx.try_send(EngineCommand::TransmitPoL {
+                                global_topic: "shift-pol-network".to_string(),
+                                local_zone: core_h3_zone, 
+                                payload,
+                                k_rings: Box::new(k_ring_zones), 
+                            }); 
+                        }
+                        response = "PoL Valid & Cleared. ZK-Proof Generated.".to_string();
+                    },
+                    Err(_) => {
+                        response = "Execution Denied: Cryptographic Distance Bounding Failed.".to_string();
                     }
-                    response = "PoL Valid & Cleared. ZK-Proof Generated.".to_string();
-                },
-                Err(_) => {
-                    response = "Execution Denied: Cryptographic Distance Bounding Failed.".to_string();
                 }
+            }
+
+            #[cfg(not(feature = "simulated"))]
+            {
+                // In production builds, simulated mock code is stripped. Real physical ranging logic will be integrated in Phase 1.6.
+                // For now, return an error that physical ranging hardware is offline/unsupported.
+                response = "Execution Denied: Physical Ranging Hardware offline or unsupported on this target.".to_string();
             }
         } else {
             response = "Execution Denied: Node Identity not found.".to_string();
