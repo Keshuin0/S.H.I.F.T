@@ -8,6 +8,7 @@ use ark_std::marker::PhantomData;
 // PHASE 4.3: HYBRID MARKET-MAKER PRICING
 // =========================================================================
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct RideCircuit<F: Field> {
     pub active_drivers: Option<F>,

@@ -80,7 +80,7 @@ enum EngineCommand {
         global_topic: String, 
         local_zone: ArrayString<32>, 
         payload: String, 
-        k_rings: ArrayVec<ArrayString<32>, 7> 
+        k_rings: Box<ArrayVec<ArrayString<32>, 7>> 
     },
     StrikeLocal {
         local_zone: ArrayString<32>,
@@ -329,7 +329,7 @@ fn handle_connection(stream: &mut std::net::TcpStream) {
 
     // 4. Derive Shared Secret
     info!("🛡️ [SOVEREIGN TUNNEL] Deriving shared secret via Ephemeral ECDH...");
-    let app_public_point = match EncodedPoint::from_bytes(&app_pub) {
+    let app_public_point = match EncodedPoint::from_bytes(app_pub) {
         Ok(p) => p,
         Err(e) => { error!("❌ [SOVEREIGN TUNNEL] Invalid App Ephemeral Public Key Point: {:?}", e); return; }
     };
@@ -506,7 +506,7 @@ fn process_vault_command(command: &str) -> String {
                                             let _ = swarm.behaviour_mut().gossipsub.subscribe(&g_topic);
                                             current_subscriptions.push(global_topic.clone());
 
-                                            for ring_zone in k_rings {
+                                            for ring_zone in *k_rings {
                                                 let topic = gossipsub::IdentTopic::new(ring_zone.as_str());
                                                 let _ = swarm.behaviour_mut().gossipsub.subscribe(&topic);
                                                 current_subscriptions.push(ring_zone.as_str().to_string());
@@ -582,7 +582,7 @@ fn process_vault_command(command: &str) -> String {
                 });
 
                 if ASYNC_RUNTIME.set(rt).is_ok() {
-                    response = format!("Vault Locked. Async L1 Engine IGNITED.");
+                    response = "Vault Locked. Async L1 Engine IGNITED.".to_string();
                 } else {
                     response = "Vault Locked, but Async Engine failed to store state.".to_string();
                 }
@@ -662,12 +662,12 @@ fn process_vault_command(command: &str) -> String {
                         let payload = format!("Node deployed to: [{}] | BLE: [{}] | Hash: {} | ZK-DB: {}", core_h3_zone.as_str(), extracted_ble, cryptogram, zksnark_receipt);
                         let _ = tx.try_send(EngineCommand::TransmitPoL {
                             global_topic: "shift-pol-network".to_string(),
-                            local_zone: core_h3_zone.clone(), 
+                            local_zone: core_h3_zone, 
                             payload,
-                            k_rings: k_ring_zones.clone(), 
+                            k_rings: Box::new(k_ring_zones), 
                         }); 
                     }
-                    response = format!("PoL Valid & Cleared. ZK-Proof Generated.");
+                    response = "PoL Valid & Cleared. ZK-Proof Generated.".to_string();
                 },
                 Err(_) => {
                     response = "Execution Denied: Cryptographic Distance Bounding Failed.".to_string();
@@ -770,13 +770,13 @@ fn process_vault_command(command: &str) -> String {
                 let mut zone_str = ArrayString::<32>::new();
                 let _ = write!(&mut zone_str, "{}", &target_zone[..target_zone.len().min(31)]);
                 let mut k_rings = ArrayVec::<ArrayString<32>, 7>::new();
-                k_rings.push(zone_str.clone());
+                k_rings.push(zone_str);
 
                 let _ = tx.try_send(EngineCommand::TransmitPoL {
                     global_topic: target_zone.clone(),
                     local_zone: zone_str,
                     payload: lock_payload,
-                    k_rings,
+                    k_rings: Box::new(k_rings),
                 });
                 info!("\u{1f512} [OCC] Lock Request fired. Ticket #{} \u{2192} Zone: {}", ticket, target_zone);
                 response = format!("\u{1f512} Lamport Lock Fired. Ticket #{} dispatched to {}.", ticket, target_zone);
