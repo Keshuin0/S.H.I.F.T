@@ -134,19 +134,29 @@
 3. **Resolved Issue #105 (A13) — Lock-Free Android Concurrency:** Replaced the non-thread-safe `mutableSetOf<String>` with a custom `LockFreeRingBufferSet(128)` utilizing lock-free and allocation-free `AtomicReferenceArray` and `AtomicInteger` operations in `MainActivity.kt`.
 4. **Verification:** Rust tests compile and pass cleanly in both standard and simulated configurations. Cross-compiled native `libshift_core.so` for `aarch64-linux-android` using `cargo ndk` and verified that the debug APK compiles successfully via `./gradlew assembleDebug` with zero warnings.
 
-### Session 9 (2026-05-30, Conversation: f5fdd351-a96c-440f-bb00-20dd22079564, Current)
+### Session 9 (2026-05-30, Conversation: f5fdd351-a96c-440f-bb00-20dd22079564)
 **What was done:**
 1. **Resolved Issue #101 (A6) — Async Stream & System Call Driver:** Gated standard TCP fallback stream under `#[cfg(not(unix))]`. Implemented `VsockStream` (gated under `#[cfg(unix)]`) implementing `AsyncRead`/`AsyncWrite` using `AsyncFd<OwnedFd>` driving non-blocking standard `libc` reads/writes and `libc::shutdown`. This replaces the insecure blocking `TcpStream::from_raw_fd`.
 2. **Resolved Issue #102 (A7) — DNS Swarm Bootstrapping:** Added the `libp2p/dns` feature to Cargo.toml. Added bootstrap seed multiaddresses, configured peer routing tables, configured GossipSub explicit peers, and triggered the dynamic Kademlia bootstrap process upon L1 engine ignition.
 3. **Cross-Compilation & Native Package:** Built the core binary targeting Android API level 35 to prevent link-time errors with standard network routines (`getifaddrs`/`freeifaddrs`), packaged it as `libshift_core.so` under `jniLibs/arm64-v8a/`, and verified successful deployment/run.
 4. **End-to-End Handshake & Logging Verification:** Deployed and verified on the connected physical Galaxy Z Fold 6 phone (`SM-F956W`).
 
+### Session 10 (2026-05-30, Conversation: 31d72431-e67c-4e14-a8f1-8c7f26498a3a, Current)
+**What was done:**
+1. **Resolved Issue #103 (A9) — Block-Lattice Operational Logic & HDSK:**
+   - Implemented a complete state validation engine in `ledger.rs` with HDSK (Hierarchical Delegated Session Key) support, checking Master Key (SECP256R1) signatures via `p256` and Ed25519 Session Key signatures.
+   - Enforced block limits, expiration timestamps, previous hash chain continuity, and double-claim / double-spend protections.
+   - Integrated the validation engine into the VSOCK/TCP `MINT_GENESIS` command handlers in `main.rs`.
+2. **Hardened Test Coverage**: Wrote comprehensive unit tests verifying delegation cert parsing, session signature checks, spend limits, expiration rejection, and double-claim checks (6/6 tests passing cleanly).
+3. **Physical Device Verification**: Cross-compiled the Rust core with Android SDK platform 35 (`cargo ndk -t arm64-v8a -P 35 build --release`) and packaged it into the Android project. Successfully built the APK, deployed it to the physical Galaxy Z Fold 6 (`SM-F956W`) via Gradle, and verified successful native fallback boot Handshakes (Node Registration, SBT Locking, and Genesis Block anchoring).
+4. **GitHub Issue Closed**: Updated `ISSUES_TRACKER.md` and closed remote Issue #103 on GitHub using CLI.
+
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **67 open issues**, 39 closed, 106 total
+- **66 open issues**, 40 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
@@ -156,7 +166,7 @@
 ### Milestone Status
 | Milestone | Issues | Due | Status |
 |-----------|--------|-----|--------|
-| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (11 closed) |
+| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (12 closed) |
 | M1: Root of Trust | 14 | Oct 2, 2026 | 🟡 In Progress (Fallback added) |
 | M2: P2P Mesh MVP | 18 | Dec 25, 2026 | 🔴 Not started |
 | M3: Ledger & Settlement | 8 | Mar 5, 2027 | 🔴 Not started |
@@ -165,7 +175,7 @@
 
 ### Priority Issues (Fix Order)
 **P0 Critical (0):** None
-**P1 High (24):** Most Phase 1-2 features + remaining major audit issues
+**P1 High (23):** Most Phase 1-2 features + remaining major audit issues
 **P2 Medium (18):** Phase 2-3 features + Issue #123 (Hardware Limitation)
 **P3 Low (10):** Cleanup + minor audit issues
 
@@ -180,6 +190,7 @@ Start M0: Audit Fixes. Recommended order:
 7. ~~A3 (#99) — Replace simulated ranging with real BLE/UWB~~ (Completed Session 8 - Gated simulation and attestation)
 8. ~~A6 (#101) — Use raw `nix` read/write operations directly on VSOCK file descriptor (P0 Critical)~~ (Completed Session 9)
 9. ~~A7 (#102) — Peer bootstrapping (P0 Critical)~~ (Completed Session 9)
+10. ~~A9 (#103) — Block-Lattice has no operational logic~~ (Completed Session 10)
 
 ---
 
@@ -197,7 +208,7 @@ Start M0: Audit Fixes. Recommended order:
 | Ranging | main.rs | 650-675 | Feature gated simulation |
 | BLE scanner | MainActivity.kt | 333-353 | No UUID filter |
 | nearbyNodes | MainActivity.kt | 269 | Closed: Lock-free ring buffer snapshot set |
-| StateBlock | main.rs | 62-70 | Data structure only |
+| StateBlock | main.rs | 72 | Closed: Validation engine + HDSK signing implemented & tested |
 
 ---
 
