@@ -77,7 +77,7 @@ mod tests {
         // Pre-initialize keys. This mimics REGISTER_NODE boot-up.
         pre_initialize_keys();
         
-        let delta_t = 1000;
+        let delta_t = 400;
         let t_compute = 100;
         let max_distance = 50_000;
         
@@ -106,5 +106,32 @@ mod tests {
         let is_valid = Groth16::<Bls12_381>::verify_with_processed_vk(pvk, &public_inputs, &proof).unwrap();
         assert!(is_valid, "Proof verification failed");
         println!("✅ Proof verified successfully!");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_distance_out_of_bounds_fails() {
+        // Pre-initialize keys.
+        pre_initialize_keys();
+        
+        let delta_t = 1000;
+        let t_compute = 100;
+        let max_distance = 50_000;
+        
+        let proof_hex = generate_tof_proof(delta_t, t_compute, max_distance);
+        let proof_bytes = hex::decode(proof_hex).unwrap();
+        let proof: ark_groth16::Proof<Bls12_381> = ark_serialize::CanonicalDeserialize::deserialize_compressed(&proof_bytes[..]).unwrap();
+        
+        let pvk = VERIFYING_KEY.get().expect("Verifying key missing");
+        
+        let public_inputs = vec![
+            Fr::from(300u32),
+            Fr::from(max_distance),
+            Fr::from(2u32),
+        ];
+        
+        let is_valid = Groth16::<Bls12_381>::verify_with_processed_vk(pvk, &public_inputs, &proof).unwrap();
+        assert!(!is_valid, "Proof with invalid distance should fail verification");
+        println!("✅ Out-of-bounds proof was correctly rejected!");
     }
 }
