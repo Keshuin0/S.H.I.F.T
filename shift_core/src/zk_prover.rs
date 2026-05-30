@@ -34,6 +34,7 @@ pub fn pre_initialize_keys() {
     }
 }
 
+#[allow(dead_code)]
 pub fn generate_tof_proof(delta_t_nanos: u64, t_compute_nanos: u64, max_distance_mm: u64) -> String {
     info!("🧠 [zkVM] Spinning up Groth16 Prover using RAM static parameters...");
     
