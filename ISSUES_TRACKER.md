@@ -145,7 +145,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A2 | 🟢 OPEN | 🔴 CRITICAL | **ZK Distance Bounding Circuit Missing Inequality Constraint** | `zk_engine.rs` | 65-101 | The `DistanceBoundingCircuit` computes `round_trip_distance` and `max_round_trip` but **never enforces** `round_trip_distance ≤ max_round_trip`. The Groth16 proof proves the arithmetic is correct but does NOT prove the node is within the allowed distance. The proof is valid regardless of physical distance. |
 | A3 | 🟢 OPEN | 🔴 CRITICAL | **Ranging is Entirely Simulated** | `main.rs` | 411-420 | The cryptographic distance bounding creates a **dummy peer keypair locally** and fabricates the entire challenge-response. `simulated_rx_time` is artificially set to `tx_timestamp + compute_delay + 100ns`. No actual over-the-air BLE/UWB ranging occurs. |
 | A4 | ✅ CLOSED | 🔴 CRITICAL | **Ephemeral libp2p Identity** | `main.rs` | 200-210 | A new Ed25519 keypair is generated on every `REGISTER_NODE` call. The node's PeerId changes every boot, destroying DHT routing tables, peer reputation history, and network identity continuity. |
-| A5 | 🟢 OPEN | 🔴 CRITICAL | **Groth16 Trusted Setup Runs Per-PoL** | `main.rs` | 425-435 | `generate_tof_proof()` calls `Groth16::circuit_specific_setup()` on every Proof-of-Location generation. Trusted setup is computationally expensive (seconds on mobile). Should be done once and the proving/verification keys cached. |
+| A5 | ✅ CLOSED | 🔴 CRITICAL | **Groth16 Trusted Setup Runs Per-PoL** | `main.rs` | 425-435 | `generate_tof_proof()` calls `Groth16::circuit_specific_setup()` on every Proof-of-Location generation. Trusted setup is computationally expensive (seconds on mobile). Should be done once and the proving/verification keys cached. |
 
 ### 🟡 MAJOR — Filed as GitHub Issues
 
@@ -184,7 +184,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A2 | 🟢 OPEN | 🔴 CRITICAL | [#98](https://github.com/Keshuin0/S.H.I.F.T/issues/98) | ZK Distance Bounding circuit missing inequality constraint |
 | A3 | 🟢 OPEN | 🔴 CRITICAL | [#99](https://github.com/Keshuin0/S.H.I.F.T/issues/99) | Cryptographic ranging is entirely simulated |
 | A4 | ✅ CLOSED | 🔴 CRITICAL | [#100](https://github.com/Keshuin0/S.H.I.F.T/issues/100) | libp2p PeerId regenerates on every boot |
-| A5 | 🟢 OPEN | 🔴 CRITICAL | [#109](https://github.com/Keshuin0/S.H.I.F.T/issues/109) | Groth16 trusted setup runs on every PoL |
+| A5 | ✅ CLOSED | 🔴 CRITICAL | [#109](https://github.com/Keshuin0/S.H.I.F.T/issues/109) | Groth16 trusted setup runs on every PoL |
 | A6 | 🟢 OPEN | 🟡 MAJOR | [#101](https://github.com/Keshuin0/S.H.I.F.T/issues/101) | VSOCK bridge uses TcpStream on non-TCP socket |
 | A7 | 🟢 OPEN | 🟡 MAJOR | [#102](https://github.com/Keshuin0/S.H.I.F.T/issues/102) | No peer bootstrapping |
 | A8 | 🟢 OPEN | 🟡 MAJOR | [#110](https://github.com/Keshuin0/S.H.I.F.T/issues/110) | PoL uses non-cryptographic DefaultHasher |

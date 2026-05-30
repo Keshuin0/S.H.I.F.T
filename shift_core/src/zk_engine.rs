@@ -2,14 +2,7 @@
 
 use ark_ff::Field;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError, LinearCombination};
-use ark_std::{marker::PhantomData, vec::Vec};
-
-// The heavy ZK artillery
-use ark_groth16::Groth16;
-use ark_snark::SNARK;
-use ark_bls12_381::{Bls12_381, Fr}; // The standard elliptic curve for ZK-SNARKs
-use ark_std::rand::thread_rng;
-use log::{info};
+use ark_std::marker::PhantomData;
 
 // =========================================================================
 // PHASE 4.3: HYBRID MARKET-MAKER PRICING
@@ -95,45 +88,4 @@ impl<F: Field> ConstraintSynthesizer<F> for DistanceBoundingCircuit<F> {
 
         Ok(())
     }
-}
-
-// =========================================================================
-// THE GROTH16 EXECUTION ENGINE
-// =========================================================================
-
-pub fn generate_tof_proof(delta_t_nanos: u64, t_compute_nanos: u64, max_distance_mm: u64) -> String {
-    info!("🧠 [zkVM] Spinning up Groth16 Prover for Sub-50ms Time-of-Flight...");
-    
-    let mut rng = thread_rng();
-    
-    // 1. Initialize Circuit with actual telemetry data
-    let circuit = DistanceBoundingCircuit::<Fr> {
-        delta_t_nanos: Some(Fr::from(delta_t_nanos)),
-        t_compute_nanos: Some(Fr::from(t_compute_nanos)),
-        speed_of_light_mm_per_ns: Some(Fr::from(300u32)),
-        max_allowed_distance_mm: Some(Fr::from(max_distance_mm)),
-        _engine: PhantomData,
-    };
-
-    // 2. Trusted Setup 
-    // NOTE: In production, this is done ONCE and the params are hardcoded. 
-    // Generating it on the fly here for the POC so we don't break the build.
-    info!("⚙️ [zkVM] Running Groth16 Generator...");
-    let (pk, _vk) = Groth16::<Bls12_381>::circuit_specific_setup(circuit.clone(), &mut rng)
-        .expect("Failed to generate proving keys");
-
-    // 3. Generate the Proof mathematically verifying distance <= max_distance
-    info!("⚡ [zkVM] Executing ZK-SNARK Ranging Proof...");
-    let proof = Groth16::<Bls12_381>::prove(&pk, circuit, &mut rng)
-        .expect("Failed to generate proof");
-
-    // 4. Compress to byte array, then hex string for network transmission
-    let mut proof_bytes = Vec::new();
-    ark_serialize::CanonicalSerialize::serialize_compressed(&proof, &mut proof_bytes)
-        .expect("Failed to serialize ZK proof");
-    
-    let proof_hex = hex::encode(proof_bytes);
-    info!("💎 [zkVM] ZK-SNARK Ranging Proof Compressed: {} bytes", proof_hex.len() / 2);
-    
-    proof_hex
 }
