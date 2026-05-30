@@ -124,7 +124,7 @@
 5. **GitHub Reorganization**: Updated `ISSUES_TRACKER.md` and closed remote Issue #98 on GitHub via CLI.
 6. **Resolved Pull Request #128 CI Check Failures**:
    - Fixed 6 Clippy errors under warnings-as-errors (`-D warnings`) in `shift_core/src/main.rs`.
-   - Modified `gemini-gatekeeper.yml` to use `gemini-2.5-pro` instead of the invalid model endpoint `gemini-3.1-pro-preview`.
+   - Modified `gemini-gatekeeper.yml` to use `gemini-2.5-pro` instead of the invalid model endpoint `gemini-3.1-pro-preview` and fixed backslash-escaped quotes in the Python script's f-string expressions to resolve a `SyntaxError` on Python 3.11.
    - Compiled the target `aarch64-linux-android` release binary with platform level 24 (`-P 24`) to correctly link network functions (`getifaddrs`/`freeifaddrs`), updating `libshift_core.so` in `android_app/app/src/main/jniLibs/arm64-v8a/`.
 
 ---
