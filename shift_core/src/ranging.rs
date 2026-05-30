@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+#![allow(dead_code)]
 
 use libp2p::identity;
 use ark_std::rand::{thread_rng, RngCore};
