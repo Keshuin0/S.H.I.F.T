@@ -260,8 +260,6 @@ object TeeBridge {
     }
 }
 
-private var nodeKeyRegenerated = false
-
 @SuppressLint("MissingPermission", "SetTextI18n", "DiscouragedPrivateApi", "PrivateApi")
 class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
@@ -273,6 +271,25 @@ class MainActivity : AppCompatActivity() {
 
     // Constant for our hardware key
     private val keyAlias = "SHIFT_SOVEREIGN_NODE_ID"
+    private val bleMeshKeyAlias = "SHIFT_BLE_MESH_KEY"
+    private var bleMeshDelegationCert: ByteArray? = null
+    
+    private val SHIFT_SERVICE_UUID = java.util.UUID.fromString("00005348-4946-542d-4c31-4e4f44455f5f")
+    private val SHIFT_SERVICE_PARCEL_UUID = android.os.ParcelUuid(SHIFT_SERVICE_UUID)
+    
+    private val signatureToMacCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val knownPeers = java.util.concurrent.ConcurrentHashMap<String, java.security.interfaces.ECPublicKey>()
+    
+    private var advertisingJob: kotlinx.coroutines.Job? = null
+    private var advertisingSet: android.bluetooth.le.AdvertisingSet? = null
+    private var legacyCallback: android.bluetooth.le.AdvertiseCallback? = null
+    private var scanCallback: android.bluetooth.le.ScanCallback? = null
+
+    private val secp256r1Params: java.security.spec.ECParameterSpec by lazy {
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(java.security.spec.ECGenParameterSpec("secp256r1"))
+        (kpg.generateKeyPair().public as java.security.interfaces.ECPublicKey).params
+    }
 
     private fun appendLog(msg: String) {
         runOnUiThread {
@@ -666,6 +683,21 @@ class MainActivity : AppCompatActivity() {
                 val sClassical = deriveSClassical()
                 val sPqc = getOrGeneratePqcSecret()
 
+                // Generate BLE Mesh Key & Delegation Certificate
+                try {
+                    val bleMeshPubKey = generateBleMeshKey()
+                    generateMeshDelegationCertificate(bleMeshPubKey)
+                    
+                    val myHashHex = byteArrayToHexString(getMasterPubKeyHash())
+                    val keyStore = KeyStore.getInstance("AndroidKeyStore")
+                    keyStore.load(null)
+                    val myPub = keyStore.getCertificate(keyAlias).publicKey as java.security.interfaces.ECPublicKey
+                    knownPeers[myHashHex] = myPub
+                    Log.d("SHIFT_BOOT", "BLE Mesh Key and Delegation Certificate generated and cached locally.")
+                } catch (e: Exception) {
+                    Log.e("SHIFT_BOOT", "Failed to generate secondary mesh key: ${e.message}", e)
+                }
+
                 val payload = "$publicKeyHex|${byteArrayToHexString(sClassical)}|${byteArrayToHexString(sPqc)}"
                 val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$payload")
 
@@ -701,26 +733,407 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    private var advertisingCallback: android.bluetooth.le.AdvertisingSetCallback? = null
+
     private fun startBleMesh() {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val adapter = bluetoothManager.adapter ?: return
-        val scanner = adapter.bluetoothLeScanner
-        val advertiser = adapter.bluetoothLeAdvertiser
+        val advertiser = adapter.bluetoothLeAdvertiser ?: return
+        val scanner = adapter.bluetoothLeScanner ?: return
 
-        val settings = AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY).build()
-        val data = AdvertiseData.Builder().setIncludeDeviceName(false).build()
-        try {
-            advertiser?.startAdvertising(settings, data, object : AdvertiseCallback() {})
-            val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-            scanner?.startScan(null, scanSettings, object : ScanCallback() {
-                override fun onScanResult(callbackType: Int, result: ScanResult) {
-                    result.device?.address?.let { nearbyNodes.add(it) }
-                }
-            })
-            isMeshActive = true
-        } catch (e: SecurityException) {
-            statusText.append("\n❌ BLE Permission Error: ${e.message}")
+        val supportsExtended = adapter.isLeExtendedAdvertisingSupported
+
+        if (!supportsExtended) {
+            statusText.append("\n⚠️ LE Extended Advertising unsupported. Running in legacy fallback mode.")
+            startLegacyAdvertisingLoop(advertiser)
+        } else {
+            startAdvertisingLoop(advertiser)
         }
+
+        val scanFilter = android.bluetooth.le.ScanFilter.Builder()
+            .setServiceUuid(SHIFT_SERVICE_PARCEL_UUID)
+            .build()
+        val filters = listOf(scanFilter)
+
+        val scanSettings = android.bluetooth.le.ScanSettings.Builder()
+            .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+
+        val callback = object : android.bluetooth.le.ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
+                val address = result.device?.address ?: return
+                val scanRecord = result.scanRecord ?: return
+                val serviceData = scanRecord.getServiceData(SHIFT_SERVICE_PARCEL_UUID) ?: return
+                
+                if (verifyScannedPeer(address, serviceData)) {
+                    nearbyNodes.add(address)
+                }
+            }
+        }
+        scanCallback = callback
+
+        try {
+            scanner.startScan(filters, scanSettings, callback)
+            isMeshActive = true
+            statusText.append("\n✅ BLE Mesh Scanning active (Filtered for SHIFT Service).")
+        } catch (e: SecurityException) {
+            statusText.append("\n❌ BLE Scan Permission Error: ${e.message}")
+        }
+    }
+
+    private fun startAdvertisingLoop(advertiser: android.bluetooth.le.BluetoothLeAdvertiser) {
+        val parameters = android.bluetooth.le.AdvertisingSetParameters.Builder()
+            .setLegacyMode(false)
+            .setInterval(android.bluetooth.le.AdvertisingSetParameters.INTERVAL_LOW)
+            .setTxPowerLevel(android.bluetooth.le.AdvertisingSetParameters.TX_POWER_MEDIUM)
+            .setPrimaryPhy(android.bluetooth.BluetoothDevice.PHY_LE_1M)
+            .setSecondaryPhy(android.bluetooth.BluetoothDevice.PHY_LE_2M)
+            .setConnectable(false)
+            .build()
+
+        val callback = object : android.bluetooth.le.AdvertisingSetCallback() {
+            override fun onAdvertisingSetStarted(
+                set: android.bluetooth.le.AdvertisingSet?,
+                txPower: Int,
+                status: Int
+            ) {
+                super.onAdvertisingSetStarted(set, txPower, status)
+                if (status == android.bluetooth.le.AdvertisingSetCallback.ADVERTISE_SUCCESS) {
+                    advertisingSet = set
+                    Log.d("SHIFT_BLE", "BLE 5.0 Extended Advertising Set active.")
+                } else {
+                    Log.e("SHIFT_BLE", "Failed to start Extended Advertising Set. Status: $status")
+                }
+            }
+        }
+        advertisingCallback = callback
+
+        try {
+            advertiser.startAdvertisingSet(parameters, null, null, null, null, callback)
+        } catch (e: SecurityException) {
+            Log.e("SHIFT_BLE", "Advertising permission error: ${e.message}")
+        }
+
+        advertisingJob = ioScope.launch {
+            while (isActive) {
+                updateBlePayload()
+                delay(60_000)
+            }
+        }
+    }
+
+    private fun startLegacyAdvertisingLoop(advertiser: android.bluetooth.le.BluetoothLeAdvertiser) {
+        val settings = AdvertiseSettings.Builder()
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .setConnectable(false)
+            .build()
+            
+        legacyCallback = object : android.bluetooth.le.AdvertiseCallback() {
+            override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+                super.onStartSuccess(settingsInEffect)
+                Log.d("SHIFT_BLE", "Legacy advertising active.")
+            }
+        }
+        
+        advertisingJob = ioScope.launch {
+            while (isActive) {
+                try {
+                    if (legacyCallback != null) {
+                        advertiser.stopAdvertising(legacyCallback)
+                    }
+                    val epoch = System.currentTimeMillis() / 60_000
+                    val masterHash = getMasterPubKeyHash()
+                    val buffer = java.nio.ByteBuffer.allocate(16)
+                    buffer.put(masterHash)
+                    buffer.putLong(epoch)
+                    
+                    val data = AdvertiseData.Builder()
+                        .addServiceUuid(SHIFT_SERVICE_PARCEL_UUID)
+                        .addServiceData(SHIFT_SERVICE_PARCEL_UUID, buffer.array())
+                        .build()
+                        
+                    advertiser.startAdvertising(settings, data, legacyCallback)
+                } catch (e: SecurityException) {
+                    Log.e("SHIFT_BLE", "Legacy advertise permission failed: ${e.message}")
+                }
+                delay(60_000)
+            }
+        }
+    }
+
+    private fun updateBlePayload() {
+        val set = advertisingSet ?: return
+        val epoch = System.currentTimeMillis() / 60_000
+        
+        try {
+            val payload = buildAttestationPayload(epoch)
+            val data = AdvertiseData.Builder()
+                .addServiceUuid(SHIFT_SERVICE_PARCEL_UUID)
+                .addServiceData(SHIFT_SERVICE_PARCEL_UUID, payload)
+                .build()
+                
+            set.setAdvertisingData(data)
+            Log.d("SHIFT_BLE", "BLE advertisement data updated for epoch: $epoch")
+        } catch (e: SecurityException) {
+            Log.e("SHIFT_BLE", "Security exception updating BLE payload: ${e.message}")
+        } catch (e: Exception) {
+            Log.e("SHIFT_BLE", "Error updating BLE payload: ${e.message}")
+        }
+    }
+
+    private fun buildAttestationPayload(epoch: Long): ByteArray {
+        val masterHash = getMasterPubKeyHash()
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        val meshPubKey = keyStore.getCertificate(bleMeshKeyAlias).publicKey as java.security.interfaces.ECPublicKey
+        val meshPubKeyBytes = getRawPublicKeyCoords(meshPubKey)
+        val cert = bleMeshDelegationCert ?: ByteArray(64)
+        
+        val meshPrivateKey = keyStore.getKey(bleMeshKeyAlias, null) as java.security.PrivateKey
+        val signature = java.security.Signature.getInstance("SHA256withECDSA")
+        signature.initSign(meshPrivateKey)
+        val epochBytes = java.nio.ByteBuffer.allocate(8).putLong(epoch).array()
+        signature.update(epochBytes)
+        val derSig = signature.sign()
+        val epochSigBytes = derToRawSignature(derSig)
+        
+        val buffer = java.nio.ByteBuffer.allocate(208)
+        buffer.put(masterHash)
+        buffer.put(meshPubKeyBytes)
+        buffer.put(cert)
+        buffer.putLong(epoch)
+        buffer.put(epochSigBytes)
+        
+        return buffer.array()
+    }
+
+    private fun verifyScannedPeer(address: String, payload: ByteArray): Boolean {
+        try {
+            if (payload.size == 16) {
+                val buffer = java.nio.ByteBuffer.wrap(payload)
+                val masterHash = ByteArray(8)
+                buffer.get(masterHash)
+                val epoch = buffer.long
+                
+                val currentEpoch = System.currentTimeMillis() / 60_000
+                if (Math.abs(epoch - currentEpoch) > 1) {
+                    Log.w("SHIFT_BLE_VERIFY", "Legacy peer $address rejected: Epoch desynchronized.")
+                    return false
+                }
+                return true
+            }
+            
+            if (payload.size != 208) {
+                Log.w("SHIFT_BLE_VERIFY", "Peer $address rejected: Invalid payload size ${payload.size}.")
+                return false
+            }
+            
+            val buffer = java.nio.ByteBuffer.wrap(payload)
+            val masterPubKeyHash = ByteArray(8)
+            buffer.get(masterPubKeyHash)
+            val meshPubKeyBytes = ByteArray(64)
+            buffer.get(meshPubKeyBytes)
+            val delegationCert = ByteArray(64)
+            buffer.get(delegationCert)
+            val epoch = buffer.long
+            val epochSignature = ByteArray(64)
+            buffer.get(epochSignature)
+            
+            val currentEpoch = System.currentTimeMillis() / 60_000
+            if (Math.abs(epoch - currentEpoch) > 1) {
+                Log.w("SHIFT_BLE_VERIFY", "Peer $address rejected: Epoch $epoch desynchronized from local $currentEpoch.")
+                return false
+            }
+            
+            val sigHex = byteArrayToHexString(epochSignature)
+            val cachedMac = signatureToMacCache.putIfAbsent(sigHex, address)
+            if (cachedMac != null && cachedMac != address) {
+                Log.e("SHIFT_BLE_VERIFY", "⚠️ REPLAY SPOOF DETECTED! Signature $sigHex rebroadcast from MAC $address (Original MAC: $cachedMac). Rejecting.")
+                return false
+            }
+            
+            val peerMasterPubKey = knownPeers[byteArrayToHexString(masterPubKeyHash)]
+            if (peerMasterPubKey == null) {
+                Log.w("SHIFT_BLE_VERIFY", "Peer master public key hash unknown: ${byteArrayToHexString(masterPubKeyHash)}. Accepting for discovery, but validation deferred.")
+                return true
+            }
+            
+            val meshPubKey = getPublicKeyFromRaw(meshPubKeyBytes)
+            
+            // 1. Verify Delegation Certificate
+            val signatureMaster = java.security.Signature.getInstance("SHA256withECDSA")
+            signatureMaster.initVerify(peerMasterPubKey)
+            signatureMaster.update(meshPubKeyBytes)
+            val derDelegation = rawToDerSignature(delegationCert)
+            if (!signatureMaster.verify(derDelegation)) {
+                Log.e("SHIFT_BLE_VERIFY", "Peer $address rejected: Invalid delegation certificate signature.")
+                return false
+            }
+            
+            // 2. Verify Epoch Signature
+            val signatureMesh = java.security.Signature.getInstance("SHA256withECDSA")
+            signatureMesh.initVerify(meshPubKey)
+            val epochBytes = java.nio.ByteBuffer.allocate(8).putLong(epoch).array()
+            signatureMesh.update(epochBytes)
+            val derEpochSig = rawToDerSignature(epochSignature)
+            if (!signatureMesh.verify(derEpochSig)) {
+                Log.e("SHIFT_BLE_VERIFY", "Peer $address rejected: Invalid epoch signature.")
+                return false
+            }
+            
+            Log.d("SHIFT_BLE_VERIFY", "Peer $address successfully validated mathematically.")
+            return true
+        } catch (e: Exception) {
+            Log.e("SHIFT_BLE_VERIFY", "Error verifying peer $address: ${e.message}", e)
+            return false
+        }
+    }
+
+    private fun generateBleMeshKey(): java.security.interfaces.ECPublicKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+
+        if (!keyStore.containsAlias(bleMeshKeyAlias)) {
+            val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+            var parameterSpec: KeyGenParameterSpec
+            
+            try {
+                parameterSpec = KeyGenParameterSpec.Builder(bleMeshKeyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setIsStrongBoxBacked(true)
+                    .setUserAuthenticationRequired(false)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated BLE Mesh Key with StrongBox backing.")
+            } catch (e: Exception) {
+                Log.w("SHIFT_KEYSTORE", "StrongBox BLE Mesh Key failed, falling back to standard TEE. (${e.message})")
+                parameterSpec = KeyGenParameterSpec.Builder(bleMeshKeyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setIsStrongBoxBacked(false)
+                    .setUserAuthenticationRequired(false)
+                    .build()
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+                Log.d("SHIFT_KEYSTORE", "Generated BLE Mesh Key with standard TEE backing.")
+            }
+        }
+
+        return keyStore.getCertificate(bleMeshKeyAlias).publicKey as java.security.interfaces.ECPublicKey
+    }
+
+    private fun generateMeshDelegationCertificate(meshPubKey: java.security.interfaces.ECPublicKey) {
+        val rawMeshCoords = getRawPublicKeyCoords(meshPubKey)
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        val masterPrivateKey = keyStore.getKey(keyAlias, null) as java.security.PrivateKey
+        val signature = java.security.Signature.getInstance("SHA256withECDSA")
+        signature.initSign(masterPrivateKey)
+        signature.update(rawMeshCoords)
+        val derSig = signature.sign()
+        bleMeshDelegationCert = derToRawSignature(derSig)
+        Log.d("SHIFT_KEYSTORE", "Generated mesh key delegation certificate successfully.")
+    }
+
+    private fun getMasterPubKeyHash(): ByteArray {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        val cert = keyStore.getCertificate(keyAlias)
+        return if (cert != null) {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val hash = md.digest(cert.publicKey.encoded)
+            hash.copyOfRange(0, 8)
+        } else {
+            ByteArray(8)
+        }
+    }
+
+    private fun getRawPublicKeyCoords(pubKey: java.security.interfaces.ECPublicKey): ByteArray {
+        val w = pubKey.w
+        val x = w.affineX.toByteArray()
+        val y = w.affineY.toByteArray()
+        
+        val raw = ByteArray(64)
+        fun copyTo32(src: ByteArray, dest: ByteArray, offset: Int) {
+            val start = if (src.size > 32) src.size - 32 else 0
+            val len = Math.min(32, src.size)
+            val destStart = offset + (32 - len)
+            System.arraycopy(src, start, dest, destStart, len)
+        }
+        copyTo32(x, raw, 0)
+        copyTo32(y, raw, 32)
+        return raw
+    }
+
+    private fun getPublicKeyFromRaw(rawCoords: ByteArray): java.security.interfaces.ECPublicKey {
+        val xBytes = rawCoords.copyOfRange(0, 32)
+        val yBytes = rawCoords.copyOfRange(32, 64)
+        
+        val x = java.math.BigInteger(1, xBytes)
+        val y = java.math.BigInteger(1, yBytes)
+        val point = java.security.spec.ECPoint(x, y)
+        
+        val pubKeySpec = java.security.spec.ECPublicKeySpec(point, secp256r1Params)
+        val keyFactory = java.security.KeyFactory.getInstance("EC")
+        return keyFactory.generatePublic(pubKeySpec) as java.security.interfaces.ECPublicKey
+    }
+
+    private fun derToRawSignature(der: ByteArray): ByteArray {
+        val stream = java.io.ByteArrayInputStream(der)
+        if (stream.read() != 0x30) throw IllegalArgumentException("Invalid DER tag")
+        val seqLen = stream.read()
+        
+        if (stream.read() != 0x02) throw IllegalArgumentException("Invalid R tag")
+        val rLen = stream.read()
+        val rBytes = ByteArray(rLen)
+        stream.read(rBytes)
+        
+        if (stream.read() != 0x02) throw IllegalArgumentException("Invalid S tag")
+        val sLen = stream.read()
+        val sBytes = ByteArray(sLen)
+        stream.read(sBytes)
+        
+        fun cleanBigIntBytes(bytes: ByteArray): ByteArray {
+            val clean = ByteArray(32)
+            val srcOffset = if (bytes.size > 32) bytes.size - 32 else 0
+            val destOffset = if (bytes.size < 32) 32 - bytes.size else 0
+            val len = Math.min(32, bytes.size)
+            System.arraycopy(bytes, srcOffset, clean, destOffset, len)
+            return clean
+        }
+        
+        val rClean = cleanBigIntBytes(rBytes)
+        val sClean = cleanBigIntBytes(sBytes)
+        
+        val raw = ByteArray(64)
+        System.arraycopy(rClean, 0, raw, 0, 32)
+        System.arraycopy(sClean, 0, raw, 32, 32)
+        return raw
+    }
+
+    private fun rawToDerSignature(raw: ByteArray): ByteArray {
+        val r = java.math.BigInteger(1, raw.copyOfRange(0, 32))
+        val s = java.math.BigInteger(1, raw.copyOfRange(32, 64))
+        
+        val rBytes = r.toByteArray()
+        val sBytes = s.toByteArray()
+        
+        val totalLength = 2 + rBytes.size + 2 + sBytes.size
+        
+        val der = java.io.ByteArrayOutputStream()
+        der.write(0x30)
+        der.write(totalLength)
+        
+        der.write(0x02)
+        der.write(rBytes.size)
+        der.write(rBytes)
+        
+        der.write(0x02)
+        der.write(sBytes.size)
+        der.write(sBytes)
+        
+        return der.toByteArray()
     }
 
     private fun triggerBiometricGate() {
@@ -771,16 +1184,6 @@ class MainActivity : AppCompatActivity() {
     private fun generateTrustZoneKey(): String {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
-
-        if (!nodeKeyRegenerated) {
-            try {
-                keyStore.deleteEntry(keyAlias)
-                Log.d("SHIFT_KEYSTORE", "Deleted old node signing key to force regeneration with validity duration.")
-            } catch (e: Exception) {
-                Log.w("SHIFT_KEYSTORE", "Failed to delete old key: ${e.message}")
-            }
-            nodeKeyRegenerated = true
-        }
 
         if (!keyStore.containsAlias(keyAlias)) {
             val keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
@@ -1043,6 +1446,35 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        advertisingJob?.cancel()
+        isMeshActive = false
+        try {
+            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            val adapter = bluetoothManager.adapter
+            if (adapter != null) {
+                val advertiser = adapter.bluetoothLeAdvertiser
+                val scanner = adapter.bluetoothLeScanner
+                if (advertiser != null) {
+                    val set = advertisingSet
+                    val cb = advertisingCallback
+                    if (set != null && cb != null) {
+                        advertiser.stopAdvertisingSet(cb)
+                    }
+                    val lCb = legacyCallback
+                    if (lCb != null) {
+                        advertiser.stopAdvertising(lCb)
+                    }
+                }
+                val sCb = scanCallback
+                if (scanner != null && sCb != null) {
+                    scanner.stopScan(sCb)
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.e("SHIFT_BLE", "Security exception during BLE cleanup: ${e.message}")
+        } catch (e: Exception) {
+            Log.e("SHIFT_BLE", "Exception during BLE cleanup: ${e.message}")
+        }
         nativeProcess?.destroy()
     }
 }

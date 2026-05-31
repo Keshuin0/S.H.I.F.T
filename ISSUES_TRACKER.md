@@ -155,7 +155,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A7 | ✅ CLOSED | 🟡 MAJOR | **No Peer Bootstrapping** | `main.rs` | 240-250 | No bootstrap lists exist. Without mDNS, node cannot find peers on internet. |
 | A8 | ✅ CLOSED | 🟡 MAJOR | **DefaultHasher for PoL Hashing** | `main.rs` | 390-405 | `SipHash` is used for Proof of Location cryptographic binding, but it is NOT cryptographically secure. |
 | A9 | ✅ CLOSED | 🟡 MAJOR | **Block-Lattice Is Data Structure Only** | `main.rs` | 62-70 | `StateBlock` is defined but no functions to mint genesis block or handle ledger logic. |
-| A10 | 🟢 OPEN | 🟡 MAJOR | **BLE Mesh Has No S.H.I.F.T. Service UUID** | `MainActivity.kt` | 333-353 | Kotlin BLE scanner collects all nearby devices instead of filtering for S.H.I.F.T. peers. |
+| A10 | ✅ CLOSED | 🟡 MAJOR | **BLE Mesh Has No S.H.I.F.T. Service UUID** | `MainActivity.kt` | 333-353 | Kotlin BLE scanner collects all nearby devices instead of filtering for S.H.I.F.T. peers. |
 | A11 | ✅ CLOSED | 🟡 MAJOR | **No VSOCK Authentication** | `main.rs` | 129-185 | Any process on the Android side can call the enclave. No HMAC or challenge-response. |
 | A12 | ✅ CLOSED | 🟡 MAJOR | **SOULBOUND_TOKEN Never Enforced** | `main.rs` | 48-50 | Rust Vault processes `GENERATE_POL` without checking if Soulbound Token exists. |
 | A13 | ✅ CLOSED | 🟡 MAJOR | **Thread Safety: nearbyNodes** | `MainActivity.kt` | 98 | `mutableSetOf` is not thread-safe. Scan callbacks write on background threads while UI reads. |
@@ -189,7 +189,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A7 | ✅ CLOSED | 🟡 MAJOR | [#102](https://github.com/Keshuin0/S.H.I.F.T/issues/102) | No peer bootstrapping |
 | A8 | ✅ CLOSED | 🟡 MAJOR | [#110](https://github.com/Keshuin0/S.H.I.F.T/issues/110) | PoL uses non-cryptographic DefaultHasher |
 | A9 | ✅ CLOSED | 🟡 MAJOR | [#103](https://github.com/Keshuin0/S.H.I.F.T/issues/103) | Block-Lattice has no operational logic |
-| A10 | 🟢 OPEN | 🟡 MAJOR | [#104](https://github.com/Keshuin0/S.H.I.F.T/issues/104) | BLE mesh scanner collects all Bluetooth devices |
+| A10 | ✅ CLOSED | 🟡 MAJOR | [#104](https://github.com/Keshuin0/S.H.I.F.T/issues/104) | BLE mesh scanner collects all Bluetooth devices |
 | A11 | ✅ CLOSED | 🟡 MAJOR | [#111](https://github.com/Keshuin0/S.H.I.F.T/issues/111) | No VSOCK authentication |
 | A12 | ✅ CLOSED | 🟡 MAJOR | [#112](https://github.com/Keshuin0/S.H.I.F.T/issues/112) | SOULBOUND_TOKEN never set or enforced |
 | A13 | ✅ CLOSED | 🟡 MAJOR | [#105](https://github.com/Keshuin0/S.H.I.F.T/issues/105) | nearbyNodes MutableSet is not thread-safe |
@@ -198,7 +198,7 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A16 | 🟢 OPEN | 🟠 MINOR | [#115](https://github.com/Keshuin0/S.H.I.F.T/issues/115) | jni crate in Cargo.toml is vestigial |
 | A17 | 🟢 OPEN | 🟠 MINOR | [#116](https://github.com/Keshuin0/S.H.I.F.T/issues/116) | Duplicate libif_watch .so files |
 | A18 | 🟢 OPEN | 🟠 MINOR | [#106](https://github.com/Keshuin0/S.H.I.F.T/issues/106) | Hardcoded fallback GPS coordinates |
-| A19 | 🟢 OPEN | 🟠 MINOR | [#107](https://github.com/Keshuin0/S.H.I.F.T/issues/107) | Gemini Gatekeeper invalid model name |
+| A19 | ✅ CLOSED | 🟠 MINOR | [#107](https://github.com/Keshuin0/S.H.I.F.T/issues/107) | Gemini Gatekeeper invalid model name |
 | A20 | 🟢 OPEN | 🟠 MINOR | [#108](https://github.com/Keshuin0/S.H.I.F.T/issues/108) | ranging.rs distance off by factor of 2 |
 
 ---

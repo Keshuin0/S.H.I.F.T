@@ -141,7 +141,7 @@
 3. **Cross-Compilation & Native Package:** Built the core binary targeting Android API level 35 to prevent link-time errors with standard network routines (`getifaddrs`/`freeifaddrs`), packaged it as `libshift_core.so` under `jniLibs/arm64-v8a/`, and verified successful deployment/run.
 4. **End-to-End Handshake & Logging Verification:** Deployed and verified on the connected physical Galaxy Z Fold 6 phone (`SM-F956W`).
 
-### Session 10 (2026-05-30, Conversation: 31d72431-e67c-4e14-a8f1-8c7f26498a3a, Current)
+### Session 10 (2026-05-30, Conversation: 31d72431-e67c-4e14-a8f1-8c7f26498a3a)
 **What was done:**
 1. **Resolved Issue #103 (A9) — Block-Lattice Operational Logic & HDSK:**
    - Implemented a complete state validation engine in `ledger.rs` with HDSK (Hierarchical Delegated Session Key) support, checking Master Key (SECP256R1) signatures via `p256` and Ed25519 Session Key signatures.
@@ -151,12 +151,25 @@
 3. **Physical Device Verification**: Cross-compiled the Rust core with Android SDK platform 35 (`cargo ndk -t arm64-v8a -P 35 build --release`) and packaged it into the Android project. Successfully built the APK, deployed it to the physical Galaxy Z Fold 6 (`SM-F956W`) via Gradle, and verified successful native fallback boot Handshakes (Node Registration, SBT Locking, and Genesis Block anchoring).
 4. **GitHub Issue Closed**: Updated `ISSUES_TRACKER.md` and closed remote Issue #103 on GitHub using CLI.
 
+### Session 11 (2026-05-30, Conversation: 018ac336-45a1-436f-a7bc-97a15dfafdd9, Current)
+**What was done:**
+1. **Resolved Issue #104 (A10) — BLE Mesh Has No S.H.I.F.T. Service UUID:**
+   - Defined a 128-bit custom service UUID (`00005348-4946-542d-4c31-4e4f44455f5f`) and integrated scan filters and BLE 5.0 `AdvertisingSet` parameters to completely isolate S.H.I.F.T. nodes.
+   - Implemented a StrongBox TEE-backed secondary key (`SHIFT_BLE_MESH_KEY`) with session delegation certificates to bypass biometric prompts on background signing loops.
+   - Added raw coordinate serialization and signature ASN.1 DER compactor to fit payload to exactly 208 bytes.
+   - Added `signatureToMacCache` checks to bind signatures to MACs and drop replayed packages.
+   - Removed boot-time identity deletion logic to preserve node accounts and balances.
+   - Declared class-level callback and implemented thorough scan/advertise resource cleanup in `onDestroy()`.
+2. **Resolved Issue #107 (A19) — Gemini Gatekeeper Invalid Model Name**: Updated the endpoint configuration string in the CI/CD pipeline config to prevent false-positive PR rejections.
+3. **Closed GitHub Issues**: Closed issues #104 and #107 on remote and posted exhaustively detailed closing comments via GitHub CLI.
+4. **Physical Device Verification**: Built the APK, installed it on the connected physical phone (`SM-F956W`), and verified successful identity loading, key derivation, and BLE extended advertising set updates.
+
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **66 open issues**, 40 closed, 106 total
+- **64 open issues**, 42 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
@@ -166,7 +179,7 @@
 ### Milestone Status
 | Milestone | Issues | Due | Status |
 |-----------|--------|-----|--------|
-| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (12 closed) |
+| M0: Audit Fixes | 24 | Jul 10, 2026 | 🟡 In Progress (14 closed) |
 | M1: Root of Trust | 14 | Oct 2, 2026 | 🟡 In Progress (Fallback added) |
 | M2: P2P Mesh MVP | 18 | Dec 25, 2026 | 🔴 Not started |
 | M3: Ledger & Settlement | 8 | Mar 5, 2027 | 🔴 Not started |
@@ -175,9 +188,9 @@
 
 ### Priority Issues (Fix Order)
 **P0 Critical (0):** None
-**P1 High (23):** Most Phase 1-2 features + remaining major audit issues
+**P1 High (22):** Most Phase 1-2 features + remaining major audit issues
 **P2 Medium (18):** Phase 2-3 features + Issue #123 (Hardware Limitation)
-**P3 Low (10):** Cleanup + minor audit issues
+**P3 Low (9):** Cleanup + minor audit issues
 
 ### Next Work
 Start M0: Audit Fixes. Recommended order:
@@ -191,6 +204,7 @@ Start M0: Audit Fixes. Recommended order:
 8. ~~A6 (#101) — Use raw `nix` read/write operations directly on VSOCK file descriptor (P0 Critical)~~ (Completed Session 9)
 9. ~~A7 (#102) — Peer bootstrapping (P0 Critical)~~ (Completed Session 9)
 10. ~~A9 (#103) — Block-Lattice has no operational logic~~ (Completed Session 10)
+11. ~~A10 (#104) — BLE Mesh Has No S.H.I.F.T. Service UUID~~ (Completed Session 11)
 
 ---
 
@@ -206,8 +220,8 @@ Start M0: Audit Fixes. Recommended order:
 | Prover Cache | zk_prover.rs | 10-69 | OnceLock key cache + benchmark unit test |
 | ZK circuit | zk_engine.rs | 42-140 | Closed: Enforced 32-bit DRP inequality constraint |
 | Ranging | main.rs | 650-675 | Feature gated simulation |
-| BLE scanner | MainActivity.kt | 333-353 | No UUID filter |
-| nearbyNodes | MainActivity.kt | 269 | Closed: Lock-free ring buffer snapshot set |
+| BLE scanner | MainActivity.kt | 757-778 | Closed: Filtered by custom service UUID, session-delegated key verification |
+| nearbyNodes | MainActivity.kt | 267 | Closed: Lock-free ring buffer snapshot set |
 | StateBlock | main.rs | 72 | Closed: Validation engine + HDSK signing implemented & tested |
 
 ---
@@ -221,4 +235,4 @@ Start M0: Audit Fixes. Recommended order:
 
 ---
 
-*Last updated: 2026-05-30 Session 9*
+*Last updated: 2026-05-30 Session 11*
