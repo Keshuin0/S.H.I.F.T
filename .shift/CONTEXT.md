@@ -164,6 +164,17 @@
 3. **Closed GitHub Issues**: Closed issues #104 and #107 on remote and posted exhaustively detailed closing comments via GitHub CLI.
 4. **Physical Device Verification**: Built the APK, installed it on the connected physical phone (`SM-F956W`), and verified successful identity loading, key derivation, and BLE extended advertising set updates.
 
+### Session 12 (2026-05-31, Conversation: b41c55b8-d369-4904-8d75-775ecf02522d, Current)
+**What was done:**
+1. **Resolved Gradle Compilation failure (-1)**: Fixed Windows process argument quoting issues in `build.gradle.kts` by invoking the `cargo` compiler executable directly instead of wrapped through Windows `cmd.exe /c`.
+2. **Improved Subprocess Output Stream Logging**: Replaced `Redirect.INHERIT` in `compileRustCore` with concurrent standard input and error thread readers, enabling dynamic NDK build log output to the Gradle build terminal and preventing buffering deadlocks.
+3. **Verified Minor Audit Fixes (A14-A18, A20)**:
+   - Verified template/stub deletions (`activity_main.xml`, `native-lib.cpp`, `CMakeLists.txt`).
+   - Confirmed warning-free `cargo clippy` and 6/6 passing unit tests in `shift_core`.
+   - Built the Android application cleanly using `./gradlew.bat assembleDebug` in 20 seconds.
+   - Synchronized build output dynamic binaries (`libshift_core.so` and `libif_watch-*.so`) to the app's `jniLibs` folder.
+4. **Updated Issue Tracker & GitHub Remote**: Marked minor issues A14, A15, A16, A17, A18, A20 as `✅ CLOSED` in `ISSUES_TRACKER.md` and successfully closed the corresponding remote GitHub issues (#113, #114, #115, #116, #106, #108) via the `gh` CLI with exhaustive, highly detailed resolution summaries and technical notes.
+
 ---
 
 ## Current State
@@ -235,4 +246,4 @@ Start M0: Audit Fixes. Recommended order:
 
 ---
 
-*Last updated: 2026-05-30 Session 11*
+*Last updated: 2026-05-31 Session 12*

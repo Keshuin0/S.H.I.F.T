@@ -1160,20 +1160,67 @@ class MainActivity : AppCompatActivity() {
 
     private fun executeProofOfLocation() {
         val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val location: Location? = try {
-            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        
+        val provider = if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            LocationManager.GPS_PROVIDER
+        } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            LocationManager.NETWORK_PROVIDER
+        } else {
+            statusText.append("\n\n❌ [SPATIAL ERROR] GPS SIGNAL OFFLINE: Location providers disabled.")
+            return
+        }
+
+        statusText.append("\n\n[REQUESTING FRESH GPS SATELLITE FIX...]")
+
+        try {
+            locationManager.getCurrentLocation(
+                provider,
+                null,
+                mainExecutor
+            ) { location ->
+                if (location == null) {
+                    statusText.append("\n\n❌ [SPATIAL ERROR] GPS SIGNAL OFFLINE: Clear satellite view required to sign PoL.")
+                    return@getCurrentLocation
+                }
+                verifyAndProcessLocation(location)
+            }
         } catch (e: SecurityException) {
             Log.w("SHIFT_AVF", "Location permission missing", e)
-            null
+            statusText.append("\n\n❌ [SPATIAL ERROR] PERMISSION DENIED: Location permission required.")
+        }
+    }
+
+    private fun verifyAndProcessLocation(location: Location) {
+        // 1. Verify Mock Provider (API 31+ has isMock, fallback to isFromMockProvider)
+        val isMocked = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            location.isMock
+        } else {
+            @Suppress("DEPRECATION")
+            location.isFromMockProvider
+        }
+        if (isMocked) {
+            statusText.append("\n\n❌ [SECURITY ALERT] GPS SPOOFING DETECTED: Hardware-backed location signature request rejected.")
+            return
+        }
+
+        // 2. Enforce Minimum Spatial Accuracy Bounds (< 50 meters)
+        if (location.hasAccuracy() && location.accuracy > 50.0f) {
+            statusText.append("\n\n❌ [SPATIAL ERROR] ACCURACY LOW: Location accuracy threshold exceeded (${location.accuracy}m > 50m).")
+            return
+        }
+
+        // 3. Enforce Monotonic Temporal Drift (Compare hardware elapsed boot time to local system boot time; limit to 5 seconds)
+        val hardwareNanos = location.elapsedRealtimeNanos
+        val systemNanos = android.os.SystemClock.elapsedRealtimeNanos()
+        val driftSeconds = Math.abs(hardwareNanos - systemNanos) / 1_000_000_000.0
+        if (driftSeconds > 5.0) {
+            statusText.append("\n\n❌ [SECURITY ALERT] TEMPORAL DRIFT DETECTED: Satellite clock spoofing detected (${driftSeconds}s). Replay attack rejected.")
+            return
         }
 
         val snapshot = nearbyNodes.getSnapshot()
         val meshConsensus = if (snapshot.isNotEmpty()) { "BLE:${snapshot.joinToString(",")}" } else { "BLE:ISOLATED" }
-        val telemetry = if (location != null) {
-            "LAT:${location.latitude}|LON:${location.longitude}|ALT:${location.altitude}|$meshConsensus|TS:${System.currentTimeMillis()}"
-        } else {
-            "LAT:46.2382|LON:-63.1311|ALT:0.0|$meshConsensus|TS:${System.currentTimeMillis()}|[INDOOR_NO_FIX]"
-        }
+        val telemetry = "LAT:${location.latitude}|LON:${location.longitude}|ALT:${location.altitude}|$meshConsensus|TS:${System.currentTimeMillis()}"
 
         ioScope.launch {
             val polResponse = TeeBridge.sendCommand("GENERATE_POL:$telemetry")
@@ -1403,6 +1450,18 @@ class MainActivity : AppCompatActivity() {
     private fun igniteNativeFallback() {
         ioScope.launch {
             try {
+                if (isDaemonRunning()) {
+                    withContext(Dispatchers.Main) {
+                        statusText.append("\n🔄 [FALLBACK] Active daemon detected on port 8000. Re-attaching to existing session.")
+                        statusText.append("\n⚙️ [FALLBACK] Rust Payload Running. TCP Bridge established.")
+                        TeeBridge.isNativeFallback = true
+                        authenticateForBoot {
+                            executeSecureBootSequence()
+                        }
+                    }
+                    return@launch
+                }
+
                 val nativeLibDir = applicationInfo.nativeLibraryDir
                 val coreBinary = java.io.File(nativeLibDir, "libshift_core.so")
                 
@@ -1441,6 +1500,29 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) { statusText.append("\n❌ [FALLBACK] Ignition Exception: ${e.message}") }
             }
+        }
+    }
+
+    private fun isDaemonRunning(): Boolean {
+        var socket: java.net.Socket? = null
+        return try {
+            socket = java.net.Socket("127.0.0.1", TeeBridge.VSOCK_PORT.toInt())
+            socket.soTimeout = 1000
+            val input = socket.getInputStream()
+            val buffer = ByteArray(97)
+            var bytesRead = 0
+            while (bytesRead < 97) {
+                val r = input.read(buffer, bytesRead, 97 - bytesRead)
+                if (r <= 0) break
+                bytesRead += r
+            }
+            bytesRead == 97
+        } catch (e: Exception) {
+            false
+        } finally {
+            try {
+                socket?.close()
+            } catch (ignored: Exception) {}
         }
     }
 

@@ -75,11 +75,12 @@ pub fn verify_time_of_flight(
     // C. Mathematical Speed of Light validation
     let t_flight = delta_t_nanos.saturating_sub(response.compute_delay_ns);
     
-    // The speed of light is ~300 mm/ns.
-    let distance_mm = t_flight * 300;
+    // The speed of light for radio waves in air is ~299.702547 mm/ns.
+    // One-way distance is (Flight Time * speed) / 2.
+    let distance_mm = (t_flight as f64 * 299.702547) / 2.0;
 
     info!("⏱️ [RANGING] Hardware RTT: {} ns | TEE Compute Delay: {} ns", delta_t_nanos, response.compute_delay_ns);
-    info!("📏 [RANGING] Physical Proximity Bounded at: {:.2} meters", distance_mm as f64 / 1000.0);
+    info!("📏 [RANGING] Physical Proximity Bounded at: {:.2} meters", distance_mm / 1000.0);
 
     Ok((delta_t_nanos, response.compute_delay_ns))
 }

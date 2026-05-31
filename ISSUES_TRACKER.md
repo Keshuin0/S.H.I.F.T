@@ -164,13 +164,13 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 
 | ID | State | Severity | Title | File | Description |
 |----|-------|----------|-------|------|-------------|
-| A14 | 🟢 OPEN | 🟠 MINOR | **Unused activity_main.xml** | `res/layout/` | Leftover "Hello World" layout from project creation. UI is built programmatically. |
-| A15 | 🟢 OPEN | 🟠 MINOR | **Dead Code: native-lib.cpp** | `cpp/` | C++ JNI stub "Hello from C++" is never called. CMakeLists.txt still builds it. |
-| A16 | 🟢 OPEN | 🟠 MINOR | **Vestigial jni Crate in Cargo.toml** | `Cargo.toml` | `jni = "0.21.1"` is still in dependencies but no JNI functions exist in the binary. |
-| A17 | 🟢 OPEN | 🟠 MINOR | **Duplicate libif_watch .so Files** | `jniLibs/` | Three copies of `libif_watch-*.so` exist. Only one is needed. |
-| A18 | 🟢 OPEN | 🟠 MINOR | **Hardcoded Fallback GPS Coordinates** | `MainActivity.kt` | Falls back to `46.2382, -63.1311` (Prince Edward Island) when GPS unavailable. Should be handled as an error, not a silent fallback. |
-| A19 | 🟢 OPEN | 🟠 MINOR | **Gemini Gatekeeper Model Name May Be Invalid** | `gemini-gatekeeper.yml` | `gemini-3.1-pro-preview` may not be a real endpoint. Failure causes the catch block to post "REJECT: Neural Engine Failure" which blocks all PRs. |
-| A20 | 🟢 OPEN | 🟠 MINOR | **Ranging Distance Calculation Off By Factor of 2** | `ranging.rs` | `distance_mm = t_flight * 300` reports round-trip distance, not one-way. The factor-of-2 division is handled separately in `zk_engine.rs`, but this makes `ranging.rs` output misleading in isolation. |
+| A14 | ✅ CLOSED | 🟠 MINOR | **Unused activity_main.xml** | `res/layout/` | Leftover "Hello World" layout from project creation. UI is built programmatically. |
+| A15 | ✅ CLOSED | 🟠 MINOR | **Dead Code: native-lib.cpp** | `cpp/` | C++ JNI stub "Hello from C++" is never called. CMakeLists.txt still builds it. |
+| A16 | ✅ CLOSED | 🟠 MINOR | **Vestigial jni Crate in Cargo.toml** | `Cargo.toml` | `jni = "0.21.1"` is still in dependencies but no JNI functions exist in the binary. |
+| A17 | ✅ CLOSED | 🟠 MINOR | **Duplicate libif_watch .so Files** | `jniLibs/` | Three copies of `libif_watch-*.so` exist. Only one is needed. |
+| A18 | ✅ CLOSED | 🟠 MINOR | **Hardcoded Fallback GPS Coordinates** | `MainActivity.kt` | Falls back to `46.2382, -63.1311` (Prince Edward Island) when GPS unavailable. Should be handled as an error, not a silent fallback. |
+| A19 | ✅ CLOSED | 🟠 MINOR | **Gemini Gatekeeper Model Name May Be Invalid** | `gemini-gatekeeper.yml` | `gemini-3.1-pro-preview` may not be a real endpoint. Failure causes the catch block to post "REJECT: Neural Engine Failure" which blocks all PRs. |
+| A20 | ✅ CLOSED | 🟠 MINOR | **Ranging Distance Calculation Off By Factor of 2** | `ranging.rs` | `distance_mm = t_flight * 300` reports round-trip distance, not one-way. The factor-of-2 division is handled separately in `zk_engine.rs`, but this makes `ranging.rs` output misleading in isolation. |
 
 ---
 
@@ -193,13 +193,13 @@ These are **critical bugs and gaps** found during the codebase deep-dive. All 20
 | A11 | ✅ CLOSED | 🟡 MAJOR | [#111](https://github.com/Keshuin0/S.H.I.F.T/issues/111) | No VSOCK authentication |
 | A12 | ✅ CLOSED | 🟡 MAJOR | [#112](https://github.com/Keshuin0/S.H.I.F.T/issues/112) | SOULBOUND_TOKEN never set or enforced |
 | A13 | ✅ CLOSED | 🟡 MAJOR | [#105](https://github.com/Keshuin0/S.H.I.F.T/issues/105) | nearbyNodes MutableSet is not thread-safe |
-| A14 | 🟢 OPEN | 🟠 MINOR | [#113](https://github.com/Keshuin0/S.H.I.F.T/issues/113) | activity_main.xml is unused |
-| A15 | 🟢 OPEN | 🟠 MINOR | [#114](https://github.com/Keshuin0/S.H.I.F.T/issues/114) | native-lib.cpp is dead code |
-| A16 | 🟢 OPEN | 🟠 MINOR | [#115](https://github.com/Keshuin0/S.H.I.F.T/issues/115) | jni crate in Cargo.toml is vestigial |
-| A17 | 🟢 OPEN | 🟠 MINOR | [#116](https://github.com/Keshuin0/S.H.I.F.T/issues/116) | Duplicate libif_watch .so files |
-| A18 | 🟢 OPEN | 🟠 MINOR | [#106](https://github.com/Keshuin0/S.H.I.F.T/issues/106) | Hardcoded fallback GPS coordinates |
+| A14 | ✅ CLOSED | 🟠 MINOR | [#113](https://github.com/Keshuin0/S.H.I.F.T/issues/113) | activity_main.xml is unused |
+| A15 | ✅ CLOSED | 🟠 MINOR | [#114](https://github.com/Keshuin0/S.H.I.F.T/issues/114) | native-lib.cpp is dead code |
+| A16 | ✅ CLOSED | 🟠 MINOR | [#115](https://github.com/Keshuin0/S.H.I.F.T/issues/115) | jni crate in Cargo.toml is vestigial |
+| A17 | ✅ CLOSED | 🟠 MINOR | [#116](https://github.com/Keshuin0/S.H.I.F.T/issues/116) | Duplicate libif_watch .so files |
+| A18 | ✅ CLOSED | 🟠 MINOR | [#106](https://github.com/Keshuin0/S.H.I.F.T/issues/106) | Hardcoded fallback GPS coordinates |
 | A19 | ✅ CLOSED | 🟠 MINOR | [#107](https://github.com/Keshuin0/S.H.I.F.T/issues/107) | Gemini Gatekeeper invalid model name |
-| A20 | 🟢 OPEN | 🟠 MINOR | [#108](https://github.com/Keshuin0/S.H.I.F.T/issues/108) | ranging.rs distance off by factor of 2 |
+| A20 | ✅ CLOSED | 🟠 MINOR | [#108](https://github.com/Keshuin0/S.H.I.F.T/issues/108) | ranging.rs distance off by factor of 2 |
 
 ---
 
