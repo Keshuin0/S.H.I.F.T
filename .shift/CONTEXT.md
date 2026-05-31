@@ -183,17 +183,20 @@
    - Prevented host system-clock spoofing by gating PoL generation in `GENERATE_POL` using the location telemetry's GPS-attested timestamp (`TS`) rather than the local system clock.
    - Added a 10-case Rust unit test suite in `main.rs` verifying all SBT verification failure modes and success paths.
    - Implemented `generateMockSbtJson()` in Kotlin client (`MainActivity.kt`) using Java Cryptography Architecture (JCA) APIs to dynamically sign the device's public key with validator keys during secure boot flow.
-2. **Verification & Deployment**:
+2. **Resolved Issue #26 — 1.4 Biometric ZK Identity (Soulbound Tokens) Epic**:
+   - Closed the parent epic on GitHub and updated `ISSUES_TRACKER.md` as all of its child requirements (#27, #28, #29) are fully completed, verified, and active on physical hardware.
+3. **Verification & Deployment**:
    - Ran `cargo test` in `shift_core`, passing all 7 unit tests.
    - Compiled the Android application successfully via `./gradlew.bat assembleDebug`.
-3. **Closed Remote Issue**: Closed Issue #29 on GitHub via the `gh` CLI.
+   - Deployed the dynamic bundle to a physical Galaxy Z Fold 6 (`SM-F956W`) and verified the secure boot handshake and SBT issuance in real-time.
+4. **Closed Remote Issues**: Closed Issues #26 and #29 on GitHub via the `gh` CLI.
 
 ---
 
 ## Current State
 
 ### GitHub Organization
-- **64 open issues**, 42 closed, 106 total
+- **62 open issues**, 44 closed, 106 total
 - **32 labels** across 7 axes (type, priority, component, phase, status, platform, lang)
 - **6 milestones:** M0 (Jul 10) → M5 (Jul 9, 2027)
 - **3 pinned issues:** #117 Roadmap, #118 Audit Checklist, #1 Phase 1 Epic
