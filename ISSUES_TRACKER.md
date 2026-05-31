@@ -34,10 +34,10 @@
 | 23 | Missing BLE Telemetry | ✅ CLOSED | #20 | — |
 | 24 | Not "Zero-Knowledge" | 🟢 OPEN | #20 | PoL hashing uses DefaultHasher, not ZK |
 | 25 | Not Routed "Directly" into the TEE (The Hardware Limitation) | 🟢 OPEN | #20 | — |
-| 26 | 1.4 Biometric ZK Identity (Soulbound Tokens) | 🟢 OPEN | #1 | #27 ✅, #28 ✅, #29 🟢 |
+| 26 | 1.4 Biometric ZK Identity (Soulbound Tokens) | 🟢 OPEN | #1 | #27 ✅, #28 ✅, #29 ✅ |
 | 27 | Biometric Prompting | ✅ CLOSED | #26 | — |
 | 28 | Biometrics are in the OS, NOT the TEE | ✅ CLOSED | #26 | — |
-| 29 | Missing the Soulbound Token (KYC State) | 🟢 OPEN | #26 | SBT never written to OnceLock |
+| 29 | Missing the Soulbound Token (KYC State) | ✅ CLOSED | #26 | SBT verified via 2-of-3 threshold verification system |
 | 30 | 1.5 Proximity Triangulation (Anti-Spoofing) | ✅ CLOSED | #1 | #31 ✅, #32 ✅, #33 ✅ |
 | 31 | The Kotlin Pipe | ✅ CLOSED | #30 | — |
 | 32 | The Rust Consensus Integration | ✅ CLOSED | #30 | — |

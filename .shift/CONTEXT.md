@@ -164,7 +164,7 @@
 3. **Closed GitHub Issues**: Closed issues #104 and #107 on remote and posted exhaustively detailed closing comments via GitHub CLI.
 4. **Physical Device Verification**: Built the APK, installed it on the connected physical phone (`SM-F956W`), and verified successful identity loading, key derivation, and BLE extended advertising set updates.
 
-### Session 12 (2026-05-31, Conversation: b41c55b8-d369-4904-8d75-775ecf02522d, Current)
+### Session 12 (2026-05-31, Conversation: b41c55b8-d369-4904-8d75-775ecf02522d)
 **What was done:**
 1. **Resolved Gradle Compilation failure (-1)**: Fixed Windows process argument quoting issues in `build.gradle.kts` by invoking the `cargo` compiler executable directly instead of wrapped through Windows `cmd.exe /c`.
 2. **Improved Subprocess Output Stream Logging**: Replaced `Redirect.INHERIT` in `compileRustCore` with concurrent standard input and error thread readers, enabling dynamic NDK build log output to the Gradle build terminal and preventing buffering deadlocks.
@@ -174,6 +174,19 @@
    - Built the Android application cleanly using `./gradlew.bat assembleDebug` in 20 seconds.
    - Synchronized build output dynamic binaries (`libshift_core.so` and `libif_watch-*.so`) to the app's `jniLibs` folder.
 4. **Updated Issue Tracker & GitHub Remote**: Marked minor issues A14, A15, A16, A17, A18, A20 as `✅ CLOSED` in `ISSUES_TRACKER.md` and successfully closed the corresponding remote GitHub issues (#113, #114, #115, #116, #106, #108) via the `gh` CLI with exhaustive, highly detailed resolution summaries and technical notes.
+
+### Session 13 (2026-05-31, Conversation: ad263aa0-a08e-4ce0-8b76-88c0fd537e23, Current)
+**What was done:**
+1. **Resolved Issue #29 — Missing the Soulbound Token (KYC State)**:
+   - Upgraded Soulbound Token (SBT) verification logic in `main.rs` to parse 2-of-3 threshold ECDSA signatures over the SECP256R1 (P-256) curve, verifying uniqueness of validators.
+   - Enforced physical device binding by verifying that `subject_pubkey` in the SBT matches the StrongBox hardware TEE `NODE_IDENTITY`.
+   - Prevented host system-clock spoofing by gating PoL generation in `GENERATE_POL` using the location telemetry's GPS-attested timestamp (`TS`) rather than the local system clock.
+   - Added a 10-case Rust unit test suite in `main.rs` verifying all SBT verification failure modes and success paths.
+   - Implemented `generateMockSbtJson()` in Kotlin client (`MainActivity.kt`) using Java Cryptography Architecture (JCA) APIs to dynamically sign the device's public key with validator keys during secure boot flow.
+2. **Verification & Deployment**:
+   - Ran `cargo test` in `shift_core`, passing all 7 unit tests.
+   - Compiled the Android application successfully via `./gradlew.bat assembleDebug`.
+3. **Closed Remote Issue**: Closed Issue #29 on GitHub via the `gh` CLI.
 
 ---
 
@@ -246,4 +259,4 @@ Start M0: Audit Fixes. Recommended order:
 
 ---
 
-*Last updated: 2026-05-31 Session 12*
+*Last updated: 2026-05-31 Session 13*
