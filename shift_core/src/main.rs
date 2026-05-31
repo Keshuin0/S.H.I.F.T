@@ -57,6 +57,9 @@ struct NodeBehaviour {
     relay_client: relay::client::Behaviour,
 }
 
+use p256::ecdsa::{VerifyingKey, Signature, signature::Verifier};
+use p256::pkcs8::DecodePublicKey;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum RangingAttestation {
@@ -64,8 +67,30 @@ pub enum RangingAttestation {
     SimulatedMock = 0xFE,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
+pub struct SoulboundToken {
+    pub subject_pubkey: String,
+    pub expiration_timestamp: u64,
+    pub kyc_class: String,
+    pub signatures: HashMap<usize, String>, // index -> hex DER signature
+}
+
+static VALIDATOR_KEYS: [&str; 3] = [
+    "3059301306072a8648ce3d020106082a8648ce3d0301070342000427382f745d81ea0457beda1fff51634b9a30bac4e3efd2739237c83425840e67177de113e1719e7c98b9124a8eb2f11a65174d4d44c18923a081768a00b34387",
+    "3059301306072a8648ce3d020106082a8648ce3d030107034200045fd5296ebb87286a32a34eceb09a96dfc5704e880df9ee491402069332887819fc7fc555fe1d6a3c71b479928b6fa5f7032328332513a9a523f599ccc9c17fbf",
+    "3059301306072a8648ce3d020106082a8648ce3d030107034200049ccfdbeece32f9cc8484d281ab2ef6b201ca3210399766b0b757f9cc6ddb0831159d78bc6ed77257dc710b7565424fcf491067b28e1266e346e6468192913816"
+];
+
+fn serialize_sbt_payload(subject_pubkey: &str, expiration_timestamp: u64, kyc_class: &str) -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(subject_pubkey.as_bytes());
+    payload.extend_from_slice(&expiration_timestamp.to_be_bytes());
+    payload.extend_from_slice(kyc_class.as_bytes());
+    payload
+}
+
 static NODE_IDENTITY: OnceLock<String> = OnceLock::new();
-static SOULBOUND_TOKEN: OnceLock<String> = OnceLock::new();
+static SOULBOUND_TOKEN: OnceLock<SoulboundToken> = OnceLock::new();
 static LAMPORT_CLOCK: AtomicU64 = AtomicU64::new(0);
 static ACTIVE_RIDE_LOCKS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
 
@@ -809,13 +834,17 @@ fn process_vault_command(command: &str) -> String {
 
         if let Some(identity) = node_id {
             // Phase 1.4: Enforce KYC clearance before PoL generation (Issue #112 / A12)
-            if SOULBOUND_TOKEN.get().is_none() {
-                return "Execution Denied: No Soulbound Token. KYC clearance required.".to_string();
-            }
+            let sbt = match SOULBOUND_TOKEN.get() {
+                Some(token) => token,
+                None => {
+                    return "Execution Denied: No Soulbound Token. KYC clearance required.".to_string();
+                }
+            };
 
             let mut extracted_lat = 0.0;
             let mut extracted_lon = 0.0;
             let mut extracted_ble = String::new();
+            let mut extracted_ts = 0u64;
             
             let parts: Vec<&str> = telemetry.split('|').collect();
             for part in &parts {
@@ -825,7 +854,19 @@ fn process_vault_command(command: &str) -> String {
                     extracted_lon = part.replace("LON:", "").parse().unwrap_or(0.0);
                 } else if part.starts_with("BLE:") {
                     extracted_ble = part.replace("BLE:", "");
+                } else if part.starts_with("TS:") {
+                    extracted_ts = part.replace("TS:", "").parse::<u64>().unwrap_or(0) / 1000;
                 }
+            }
+
+            let current_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let check_time = if extracted_ts > 0 { extracted_ts } else { current_time };
+            if check_time > sbt.expiration_timestamp {
+                return format!("Execution Denied: Soulbound Token has expired. Time: {}, Expiration: {}", check_time, sbt.expiration_timestamp);
             }
 
             let mut k_ring_zones: ArrayVec<ArrayString<32>, 7> = ArrayVec::new();
@@ -922,21 +963,87 @@ fn process_vault_command(command: &str) -> String {
     // PHASE 1.4: SOULBOUND TOKEN ISSUANCE (Issue #97 / A1)
     // =========================================================================
     else if command.starts_with("ISSUE_SBT:") {
-        let sbt_token = command.replace("ISSUE_SBT:", "").trim().to_string();
-        if sbt_token.is_empty() {
-            response = "Execution Denied: Empty SBT token.".to_string();
-        } else {
-            match SOULBOUND_TOKEN.set(sbt_token.clone()) {
-                Ok(_) => {
-                    let mut hasher = Sha256::new();
-                    hasher.update(sbt_token.as_bytes());
-                    let sbt_hash = hex::encode(hasher.finalize());
-                    info!("\u{1f6e1}\u{fe0f} [IDENTITY] Soulbound Token attested: {}", &sbt_hash[..16]);
-                    response = format!("\u{1f6e1}\u{fe0f} Soulbound Token Locked. KYC Hash: {}.", &sbt_hash[..16]);
-                },
-                Err(_) => {
-                    response = "Identity already attested. Soulbound Token is immutable.".to_string();
-                }
+        let sbt_json = command.replace("ISSUE_SBT:", "").trim().to_string();
+        let sbt: SoulboundToken = match serde_json::from_str(&sbt_json) {
+            Ok(token) => token,
+            Err(e) => {
+                return format!("Execution Denied: Invalid SBT JSON encoding: {:?}", e);
+            }
+        };
+
+        // 1. Enforce subject binding
+        let node_id = match NODE_IDENTITY.get() {
+            Some(id) => id,
+            None => {
+                return "Execution Denied: Node Identity not registered. Register node first.".to_string();
+            }
+        };
+        if &sbt.subject_pubkey != node_id {
+            return format!("Execution Denied: TEE Node ID Mismatch. Expected: {}, Got: {}", node_id, sbt.subject_pubkey);
+        }
+
+        // 2. Enforce temporal validity
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if current_time > sbt.expiration_timestamp {
+            return format!("Execution Denied: Soulbound Token has expired. Time: {}, Expiration: {}", current_time, sbt.expiration_timestamp);
+        }
+
+        // 3. Verify Validator signatures and track unique indexes
+        let payload = serialize_sbt_payload(&sbt.subject_pubkey, sbt.expiration_timestamp, &sbt.kyc_class);
+        let mut verified_indices = HashSet::new();
+
+        for (&val_idx, sig_hex) in &sbt.signatures {
+            if val_idx >= VALIDATOR_KEYS.len() {
+                return format!("Execution Denied: Invalid validator index: {}", val_idx);
+            }
+
+            let pk_hex = VALIDATOR_KEYS[val_idx];
+            let pk_bytes = match hex::decode(pk_hex) {
+                Ok(bytes) => bytes,
+                Err(_) => return "Execution Denied: Internal validator key decode error.".to_string(),
+            };
+
+            let sig_bytes = match hex::decode(sig_hex) {
+                Ok(bytes) => bytes,
+                Err(_) => return format!("Execution Denied: Invalid signature hex for validator index {}.", val_idx),
+            };
+
+            let verifying_key = match VerifyingKey::from_public_key_der(&pk_bytes) {
+                Ok(vk) => vk,
+                Err(e) => return format!("Execution Denied: Failed to decode validator {} public key: {:?}", val_idx, e),
+            };
+
+            let signature = match Signature::from_der(&sig_bytes) {
+                Ok(sig) => sig,
+                Err(e) => return format!("Execution Denied: Failed to parse validator {} signature: {:?}", val_idx, e),
+            };
+
+            if verifying_key.verify(&payload, &signature).is_ok() {
+                verified_indices.insert(val_idx);
+            } else {
+                return format!("Execution Denied: Signature verification failed for validator index {}.", val_idx);
+            }
+        }
+
+        // 4. Enforce threshold verification (minimum 2 signatures)
+        if verified_indices.len() < 2 {
+            return format!("Execution Denied: Insufficient signature threshold. Verified: {}/2 required.", verified_indices.len());
+        }
+
+        // 5. Commit to static container
+        match SOULBOUND_TOKEN.set(sbt.clone()) {
+            Ok(_) => {
+                let mut hasher = Sha256::new();
+                hasher.update(sbt_json.as_bytes());
+                let sbt_hash = hex::encode(hasher.finalize());
+                info!("🛡️ [IDENTITY] Soulbound Token verified & locked. KYC Class: {}, Hash: {}", sbt.kyc_class, &sbt_hash[..16]);
+                response = format!("🛡️ Soulbound Token verified successfully. Threshold Met ({}/2). Locked.", verified_indices.len());
+            }
+            Err(_) => {
+                response = "Identity already attested. Soulbound Token is immutable.".to_string();
             }
         }
     }
@@ -1332,5 +1439,128 @@ mod tests {
         
         assert_eq!(peer_id1, peer_id2);
         println!("Test success: PeerId derived deterministically: {}", peer_id1);
+    }
+
+    #[test]
+    fn test_sbt_verification_flow() {
+        use p256::ecdsa::SigningKey;
+        use p256::ecdsa::signature::Signer;
+        use p256::SecretKey;
+
+        // Initialize NODE_IDENTITY
+        let test_node_id = "3059301306072a8648ce3d020106082a8648ce3d03010703420004b71565928a4e41aa63b7524c94e1df61aea291d6091e7e365e972aab0cedcee0c40c64c9eba480e9fb639257de9eab655021bf39e7b854de63973696a866e716".to_string();
+        let _ = NODE_IDENTITY.get_or_init(|| test_node_id.clone());
+
+        // Validator private keys
+        let val_privs = [
+            "8fd000c2e557eb0dd22d373c336e43387cd00bee45bd358b1c7195b174b0b1d9",
+            "c68313ab4d82eb52ff34188567ce4ed040ff34dbf025efd207b71cd6e1822aa5",
+            "f2d7118b7392018d5f29229bd0369329e98a35f06bb00778a6c9411bcc97be81"
+        ];
+
+        let expiration = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() + 3600; // 1 hour in the future
+
+        let kyc_class = "CLASS_A".to_string();
+        let payload = serialize_sbt_payload(&test_node_id, expiration, &kyc_class);
+
+        // Helper function to sign payload using validator key index
+        let sign_payload = |val_idx: usize| -> String {
+            let sk_bytes = hex::decode(val_privs[val_idx]).unwrap();
+            let sk = SecretKey::from_slice(&sk_bytes).unwrap();
+            let signing_key = SigningKey::from(sk);
+            let signature: p256::ecdsa::Signature = signing_key.sign(&payload);
+            hex::encode(signature.to_der())
+        };
+
+        // 1. Invalid SBT JSON encoding
+        let res = process_vault_command("ISSUE_SBT:invalid-json");
+        assert!(res.contains("Execution Denied: Invalid SBT JSON encoding"));
+
+        // 2. Mismatched TEE Node ID
+        let sbt_mismatched = SoulboundToken {
+            subject_pubkey: "mismatched_pubkey".to_string(),
+            expiration_timestamp: expiration,
+            kyc_class: kyc_class.clone(),
+            signatures: HashMap::new(),
+        };
+        let res = process_vault_command(&format!("ISSUE_SBT:{}", serde_json::to_string(&sbt_mismatched).unwrap()));
+        assert!(res.contains("Execution Denied: TEE Node ID Mismatch"));
+
+        // 3. Expired token
+        let sbt_expired = SoulboundToken {
+            subject_pubkey: test_node_id.clone(),
+            expiration_timestamp: 1000,
+            kyc_class: kyc_class.clone(),
+            signatures: HashMap::new(),
+        };
+        let res = process_vault_command(&format!("ISSUE_SBT:{}", serde_json::to_string(&sbt_expired).unwrap()));
+        assert!(res.contains("Execution Denied: Soulbound Token has expired"));
+
+        // 4. Invalid validator index
+        let mut signatures_invalid_idx = HashMap::new();
+        signatures_invalid_idx.insert(3, "sig_placeholder".to_string());
+        let sbt_invalid_idx = SoulboundToken {
+            subject_pubkey: test_node_id.clone(),
+            expiration_timestamp: expiration,
+            kyc_class: kyc_class.clone(),
+            signatures: signatures_invalid_idx,
+        };
+        let res = process_vault_command(&format!("ISSUE_SBT:{}", serde_json::to_string(&sbt_invalid_idx).unwrap()));
+        assert!(res.contains("Execution Denied: Invalid validator index: 3"));
+
+        // 5. Insufficient signature threshold (1 of 3)
+        let mut signatures_one = HashMap::new();
+        signatures_one.insert(0, sign_payload(0));
+        let sbt_one = SoulboundToken {
+            subject_pubkey: test_node_id.clone(),
+            expiration_timestamp: expiration,
+            kyc_class: kyc_class.clone(),
+            signatures: signatures_one,
+        };
+        let res = process_vault_command(&format!("ISSUE_SBT:{}", serde_json::to_string(&sbt_one).unwrap()));
+        assert!(res.contains("Execution Denied: Insufficient signature threshold"));
+
+        // 6. Signature verification failed (Validator 1 signature assigned to Validator 0 index)
+        let mut signatures_swapped = HashMap::new();
+        signatures_swapped.insert(0, sign_payload(1)); // Swapped signature!
+        signatures_swapped.insert(1, sign_payload(0)); // Swapped signature!
+        let sbt_swapped = SoulboundToken {
+            subject_pubkey: test_node_id.clone(),
+            expiration_timestamp: expiration,
+            kyc_class: kyc_class.clone(),
+            signatures: signatures_swapped,
+        };
+        let res = process_vault_command(&format!("ISSUE_SBT:{}", serde_json::to_string(&sbt_swapped).unwrap()));
+        assert!(res.contains("Execution Denied: Signature verification failed"));
+
+        // 7. Successful 2-of-3 threshold signature verification
+        let mut signatures_valid = HashMap::new();
+        signatures_valid.insert(0, sign_payload(0));
+        signatures_valid.insert(2, sign_payload(2));
+        let sbt_valid = SoulboundToken {
+            subject_pubkey: test_node_id.clone(),
+            expiration_timestamp: expiration,
+            kyc_class: kyc_class.clone(),
+            signatures: signatures_valid,
+        };
+        let res = process_vault_command(&format!("ISSUE_SBT:{}", serde_json::to_string(&sbt_valid).unwrap()));
+        assert!(res.contains("Soulbound Token verified successfully. Threshold Met (2/2). Locked."));
+
+        // 8. Immutable SBT test
+        let res = process_vault_command(&format!("ISSUE_SBT:{}", serde_json::to_string(&sbt_valid).unwrap()));
+        assert!(res.contains("Identity already attested. Soulbound Token is immutable."));
+
+        // 9. Telemetry expired check in PoL (SBT expired compared to GPS timestamp)
+        let expired_ts = (expiration + 10) * 1000;
+        let res = process_vault_command(&format!("GENERATE_POL:LAT:45.5|LON:-73.5|BLE:mac|TS:{}", expired_ts));
+        assert!(res.contains("Execution Denied: Soulbound Token has expired."));
+
+        // 10. Telemetry valid check in PoL (GPS timestamp is fresh)
+        let fresh_ts = (expiration - 10) * 1000; // in milliseconds
+        let res = process_vault_command(&format!("GENERATE_POL:LAT:45.5|LON:-73.5|BLE:mac|TS:{}", fresh_ts));
+        assert!(!res.contains("Soulbound Token has expired"));
     }
 }

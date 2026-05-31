@@ -701,8 +701,8 @@ class MainActivity : AppCompatActivity() {
                 val payload = "$publicKeyHex|${byteArrayToHexString(sClassical)}|${byteArrayToHexString(sPqc)}"
                 val rustIdentityResponse = TeeBridge.sendCommand("REGISTER_NODE:$payload")
 
-                val sbtToken = "SBT-CLEAR-ID-9942"
-                val rustSbtResponse = TeeBridge.sendCommand("ISSUE_SBT:$sbtToken")
+                val sbtJson = generateMockSbtJson(publicKeyHex)
+                val rustSbtResponse = TeeBridge.sendCommand("ISSUE_SBT:$sbtJson")
                 val genesisResponse = TeeBridge.sendCommand("MINT_GENESIS:")
 
                 withContext(Dispatchers.Main) {
@@ -714,6 +714,67 @@ class MainActivity : AppCompatActivity() {
                     Log.e("SHIFT_BOOT", "Secure boot execution failed", e)
                 }
             }
+        }
+    }
+
+    private fun generateMockSbtJson(subjectPubKeyHex: String): String {
+        try {
+            val val0PrivHex = "8fd000c2e557eb0dd22d373c336e43387cd00bee45bd358b1c7195b174b0b1d9"
+            val val1PrivHex = "c68313ab4d82eb52ff34188567ce4ed040ff34dbf025efd207b71cd6e1822aa5"
+
+            val expirationTimestamp = System.currentTimeMillis() / 1000 + (365 * 24 * 3600) // 1 year
+            val kycClass = "CLASS_A"
+
+            // Construct payload
+            val subjectPubKeyBytes = subjectPubKeyHex.toByteArray(Charsets.UTF_8)
+            val kycClassBytes = kycClass.toByteArray(Charsets.UTF_8)
+
+            val stream = java.io.ByteArrayOutputStream()
+            stream.write(subjectPubKeyBytes)
+
+            val buffer = java.nio.ByteBuffer.allocate(8)
+            buffer.order(java.nio.ByteOrder.BIG_ENDIAN)
+            buffer.putLong(expirationTimestamp)
+            stream.write(buffer.array())
+
+            stream.write(kycClassBytes)
+
+            val payload = stream.toByteArray()
+
+            // Helper to sign
+            val signWithKey = { privHex: String ->
+                val rawBytes = hexStringToByteArray(privHex)
+                val privateKeyBigInt = java.math.BigInteger(1, rawBytes)
+                val params = java.security.AlgorithmParameters.getInstance("EC")
+                params.init(java.security.spec.ECGenParameterSpec("secp256r1"))
+                val ecParameters = params.getParameterSpec(java.security.spec.ECParameterSpec::class.java)
+                val ecPrivateKeySpec = java.security.spec.ECPrivateKeySpec(privateKeyBigInt, ecParameters)
+                val keyFactory = java.security.KeyFactory.getInstance("EC")
+                val privKey = keyFactory.generatePrivate(ecPrivateKeySpec)
+
+                val sig = java.security.Signature.getInstance("SHA256withECDSA")
+                sig.initSign(privKey)
+                sig.update(payload)
+                byteArrayToHexString(sig.sign())
+            }
+
+            val sig0 = signWithKey(val0PrivHex)
+            val sig1 = signWithKey(val1PrivHex)
+
+            val sbtObj = org.json.JSONObject()
+            sbtObj.put("subject_pubkey", subjectPubKeyHex)
+            sbtObj.put("expiration_timestamp", expirationTimestamp)
+            sbtObj.put("kyc_class", kycClass)
+
+            val sigsObj = org.json.JSONObject()
+            sigsObj.put("0", sig0)
+            sigsObj.put("1", sig1)
+
+            sbtObj.put("signatures", sigsObj)
+            return sbtObj.toString()
+        } catch (e: Exception) {
+            Log.e("SHIFT_SBT", "Failed to generate mock SBT JSON: ${e.message}", e)
+            throw e
         }
     }
 
